@@ -1,0 +1,253 @@
+import express, { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { Server } from 'socket.io';
+import { all, get, run } from '../db';
+import { authMiddleware } from '../middleware/auth';
+
+const router = express.Router();
+let io: Server | undefined;
+
+export const setIo = (socketIo: Server) => { io = socketIo; };
+
+router.post('/', authMiddleware, (req: Request, res: Response) => {
+  try {
+    const { board_id, column_id, title, description, priority, due_date, assignee_ids, linked_message_id, parent_task_id } = req.body;
+    if (!board_id || !column_id || !title) {
+      return res.status(400).json({ error: 'board_id, column_id, title required' });
+    }
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const existing = all('SELECT id FROM tasks WHERE column_id = ?', [column_id]);
+    const id = uuidv4();
+    run(
+      'INSERT INTO tasks (id, board_id, column_id, title, description, priority, due_date, created_by, linked_message_id, parent_task_id, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, board_id, column_id, title, description || '', priority || 'medium', due_date || null, req.user.id, linked_message_id || null, parent_task_id || null, existing.length]
+    );
+
+    if (linked_message_id) {
+      run('UPDATE messages SET linked_task_id = ? WHERE id = ?', [id, linked_message_id]);
+    }
+
+    if (assignee_ids && Array.isArray(assignee_ids)) {
+      assignee_ids.forEach(uid => {
+        run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [id, uid]);
+        if (uid !== req.user?.id) {
+          const notifId = uuidv4();
+          const assigner = get('SELECT name FROM users WHERE id = ?', [req.user?.id]);
+          run(
+            'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
+            [notifId, uid, 'task_assigned', id, 'task', `${assigner?.name || 'A user'} assigned you to "${title}"`]
+          );
+          if (io) io.to(`user:${uid}`).emit('notification', { id: notifId, type: 'task_assigned' });
+        }
+      });
+    }
+
+    const task = get('SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?', [id]);
+    const assignees = all(
+      `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
+      [id]
+    );
+    const result = { ...task, assignees };
+    if (io) io.to(`board:${board_id}`).emit('task_updated', { type: 'created', task: result });
+
+    // ── Post a system notification message to the origin channel/thread or DM ──
+    if (linked_message_id && io) {
+      const origin = get<{
+        channel_id: string | null;
+        dm_thread_id: string | null;
+        parent_message_id: string | null;
+      }>('SELECT channel_id, dm_thread_id, parent_message_id FROM messages WHERE id = ?', [linked_message_id]);
+
+      if (origin) {
+        const systemContent = `🗂️ Task created: **${title}**`;
+        const systemId = uuidv4();
+        const creator = get<{ name: string; avatar_url: string }>('SELECT name, avatar_url FROM users WHERE id = ?', [req.user.id]);
+
+        if (origin.channel_id) {
+          // Insert as a thread reply if the linked message is itself a thread reply,
+          // otherwise post to the channel itself.
+          const postParentId = origin.parent_message_id ?? linked_message_id;
+
+          run(
+            'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
+            [systemId, origin.channel_id, req.user.id, systemContent, id, postParentId]
+          );
+
+          const systemMsg = {
+            id: systemId,
+            channel_id: origin.channel_id,
+            sender_id: req.user.id,
+            content: systemContent,
+            linked_task_id: id,
+            linked_task: { id, title, priority: priority || 'medium' },
+            created_at: new Date().toISOString(),
+            sender: { id: req.user.id, name: creator?.name, avatar_url: creator?.avatar_url },
+            parent_message_id: postParentId,
+            reply_count: 0,
+            reactions: [],
+          };
+
+          if (origin.parent_message_id) {
+            // It was a thread reply — notify thread participants only
+            const participants = all<{ sender_id: string }>(
+              'SELECT DISTINCT sender_id FROM messages WHERE id = ? OR parent_message_id = ?',
+              [postParentId, postParentId]
+            );
+            const notified = new Set<string>();
+            participants.forEach(p => {
+              io!.to(`user:${p.sender_id}`).emit('new_message', systemMsg);
+              notified.add(p.sender_id);
+            });
+            if (!notified.has(req.user.id)) io.to(`user:${req.user.id}`).emit('new_message', systemMsg);
+          } else {
+            // Root channel message — broadcast to channel room
+            io.to(`channel:${origin.channel_id}`).emit('new_message', systemMsg);
+          }
+
+        } else if (origin.dm_thread_id) {
+          run(
+            'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
+            [systemId, origin.dm_thread_id, req.user.id, systemContent, id, origin.parent_message_id || null]
+          );
+
+          const systemMsg = {
+            id: systemId,
+            dm_thread_id: origin.dm_thread_id,
+            sender_id: req.user.id,
+            content: systemContent,
+            linked_task_id: id,
+            linked_task: { id, title, priority: priority || 'medium' },
+            created_at: new Date().toISOString(),
+            sender: { id: req.user.id, name: creator?.name, avatar_url: creator?.avatar_url },
+            parent_message_id: origin.parent_message_id || null,
+            reply_count: 0,
+            reactions: [],
+          };
+
+          io.to(`dm:${origin.dm_thread_id}`).emit('new_dm', systemMsg);
+        }
+      }
+    }
+
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+router.patch('/:id', authMiddleware, (req: Request, res: Response) => {
+  try {
+    const { title, description, priority, due_date, assignee_ids, column_id, parent_task_id } = req.body;
+    const task = get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    let newPosition = task.position;
+    if (column_id && column_id !== task.column_id) {
+      const existing = all('SELECT id FROM tasks WHERE column_id = ?', [column_id]);
+      newPosition = existing.length;
+    }
+
+    // prevent cyclic parenting: task cannot be its own parent
+    const parsedParentId = parent_task_id === req.params.id ? null : (parent_task_id ?? task.parent_task_id);
+
+    run(
+      'UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, column_id = ?, parent_task_id = ?, position = ? WHERE id = ?',
+      [title ?? task.title, description ?? task.description, priority ?? task.priority, due_date ?? task.due_date, column_id ?? task.column_id, parsedParentId, newPosition, req.params.id]
+    );
+
+    if (assignee_ids && Array.isArray(assignee_ids)) {
+      run('DELETE FROM task_assignees WHERE task_id = ?', [req.params.id]);
+      assignee_ids.forEach(uid => {
+        run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [req.params.id, uid]);
+      });
+    }
+    const updated = get('SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?', [req.params.id]);
+    const assignees = all(
+      `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
+      [req.params.id]
+    );
+    const result = { ...updated, assignees };
+    if (io) io.to(`board:${updated.board_id}`).emit('task_updated', { type: 'updated', task: result });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.patch('/:id/move', authMiddleware, (req: Request, res: Response) => {
+  try {
+    const { column_id, position } = req.body;
+    const task = get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    run('UPDATE tasks SET column_id = ?, position = ? WHERE id = ?',
+      [column_id ?? task.column_id, position ?? task.position, req.params.id]);
+
+    const updated = get('SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?', [req.params.id]);
+    if (io) io.to(`board:${updated.board_id}`).emit('task_updated', { type: 'moved', task: updated });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get a single task by ID with full joined message data
+router.get('/task/:id', authMiddleware, (req: Request, res: Response) => {
+  try {
+    const task = get(
+      `SELECT t.*, c.title as column_title,
+        m.channel_id as linked_channel_id,
+        m.parent_message_id as linked_parent_message_id,
+        m.dm_thread_id as linked_dm_thread_id
+       FROM tasks t
+       LEFT JOIN columns c ON t.column_id = c.id
+       LEFT JOIN messages m ON t.linked_message_id = m.id
+       WHERE t.id = ?`,
+      [req.params.id]
+    );
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    const assignees = all(
+      `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
+      [req.params.id]
+    );
+    res.json({ ...task, assignees });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.delete('/:id', authMiddleware, (req: Request, res: Response) => {
+  try {
+    const task = get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    run('DELETE FROM task_assignees WHERE task_id = ?', [req.params.id]);
+    run('UPDATE messages SET linked_task_id = NULL WHERE linked_task_id = ?', [req.params.id]);
+    run('DELETE FROM tasks WHERE id = ?', [req.params.id]);
+
+    if (io) io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: req.params.id });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/:boardId', authMiddleware, (req: Request, res: Response) => {
+  const tasks = all(
+    'SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.board_id = ? ORDER BY t.position ASC', 
+    [req.params.boardId]
+  );
+  const enriched = tasks.map((t: any) => ({
+    ...t,
+    assignees: all(
+      `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
+      [t.id]
+    )
+  }));
+  res.json(enriched);
+});
+
+export default router;
+export { router as taskRouter };

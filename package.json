@@ -1,0 +1,16 @@
+{
+  "name": "flowwork",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "nx run-many --target=dev --all --parallel",
+    "build": "nx run-many --target=build --all",
+    "lint": "nx run-many --target=lint --all",
+    "frontend": "nx run frontend:dev",
+    "backend": "nx run backend:dev"
+  },
+  "devDependencies": {
+    "nx": "^20.0.0"
+  }
+}
