@@ -17,7 +17,7 @@
         "command": "tsc --project tsconfig.json",
         "cwd": "apps/backend"
       },
-      "outputs": ["apps/backend/dist"]
+      "outputs": ["{workspaceRoot}/apps/backend/dist"]
     },
     "start": {
       "executor": "nx:run-commands",

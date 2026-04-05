@@ -17,7 +17,7 @@
         "command": "vite build",
         "cwd": "apps/frontend"
       },
-      "outputs": ["apps/frontend/dist"]
+      "outputs": ["{workspaceRoot}/apps/frontend/dist"]
     },
     "preview": {
       "executor": "nx:run-commands",
