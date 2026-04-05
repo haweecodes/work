@@ -70,6 +70,23 @@ export default function MessageBubble({
     }
   };
 
+  // Render system message (e.g., Task created)
+  if (msg.is_system === 1) {
+    return (
+      <div
+        data-msg-id={msg.id}
+        className="flex justify-center px-6 py-2 relative"
+      >
+        <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-1.5 text-xs text-gray-600 font-medium flex items-center gap-2 shadow-sm">
+          <span>{renderContent(msg.content)}</span>
+          <span className="text-gray-400 font-normal text-[10px]">
+            {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-msg-id={msg.id}

@@ -86,7 +86,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
           const postParentId = origin.parent_message_id ?? linked_message_id;
 
           run(
-            'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, parent_message_id, is_system) VALUES (?, ?, ?, ?, ?, ?, 1)',
             [systemId, origin.channel_id, req.user.id, systemContent, id, postParentId]
           );
 
@@ -102,6 +102,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
             parent_message_id: postParentId,
             reply_count: 0,
             reactions: [],
+            is_system: 1,
           };
 
           if (origin.parent_message_id) {
@@ -123,7 +124,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
 
         } else if (origin.dm_thread_id) {
           run(
-            'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id, is_system) VALUES (?, ?, ?, ?, ?, ?, 1)',
             [systemId, origin.dm_thread_id, req.user.id, systemContent, id, origin.parent_message_id || null]
           );
 
@@ -139,6 +140,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
             parent_message_id: origin.parent_message_id || null,
             reply_count: 0,
             reactions: [],
+            is_system: 1,
           };
 
           io.to(`dm:${origin.dm_thread_id}`).emit('new_dm', systemMsg);

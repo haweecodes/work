@@ -83,6 +83,7 @@ function enrichDmMessage(m: any) {
     reactions,
     shared_message_id: m.shared_message_id ?? null,
     shared_message,
+    is_system: m.is_system ?? 0,
   };
 }
 

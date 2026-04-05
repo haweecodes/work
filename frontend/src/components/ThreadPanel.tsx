@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
@@ -34,8 +35,8 @@ export default function ThreadPanel({
   const socketRef = useContext(SocketContext);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  /** Refs keyed by message ID so we can scroll to any message in the thread */
-  const msgRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
 
   const scrollToBottom = () => endRef.current?.scrollIntoView({ behavior: 'smooth' });
 
@@ -57,7 +58,18 @@ export default function ThreadPanel({
       .then(({ data }) => {
         setMessages(data);
         setLoading(false);
-        setTimeout(scrollToBottom, 100);
+        setTimeout(() => {
+          if (highlightId) {
+            const el = document.querySelector(`[data-msg-id="${highlightId}"]`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('msg-highlight');
+              setTimeout(() => el.classList.remove('msg-highlight'), 3000);
+              return;
+            }
+          }
+          scrollToBottom();
+        }, 100);
       })
       .catch(() => setLoading(false));
 
@@ -141,12 +153,11 @@ export default function ThreadPanel({
 
   /** Scroll to a specific message in the thread list (used by quoted-card click) */
   const scrollToMsg = (msg: Message) => {
-    const el = msgRefs.current[msg.id];
+    const el = document.querySelector(`[data-msg-id="${msg.id}"]`);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Brief highlight flash
-      el.classList.add('ring-2', 'ring-primary-300', 'rounded-lg');
-      setTimeout(() => el.classList.remove('ring-2', 'ring-primary-300', 'rounded-lg'), 1200);
+      el.classList.add('msg-highlight');
+      setTimeout(() => el.classList.remove('msg-highlight'), 3000);
     }
   };
 
@@ -215,10 +226,7 @@ export default function ThreadPanel({
               const depth = getDepth(msg);
               const replyTo = getReplyTo(msg);
               return (
-                <div
-                  key={msg.id}
-                  ref={el => { msgRefs.current[msg.id] = el; }}
-                >
+                <div key={msg.id}>
                   <MessageBubble
                     msg={msg}
                     depth={depth}

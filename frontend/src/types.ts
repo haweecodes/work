@@ -111,6 +111,7 @@ export interface Message {
   /** Set when this message is a forwarded/shared message */
   shared_message_id?: string;
   shared_message?: SharedMessagePreview;
+  is_system?: number;
 }
 
 export interface Notification {

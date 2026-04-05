@@ -199,6 +199,14 @@ export async function initDb() {
   } catch {
     // Column might already exist
   }
+
+  // is_system flag for task-created and other automated messages
+  try {
+    db.run('ALTER TABLE messages ADD COLUMN is_system INTEGER DEFAULT 0');
+    saveDb();
+  } catch {
+    // Column might already exist
+  }
 }
 
 export function saveDb() {
