@@ -101,7 +101,7 @@ export default function MessageBubble({
       <div className="flex-1 min-w-0">
         {/* Header: name · time · depth badge · action bar */}
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-sm font-semibold text-gray-900">{msg.sender?.name}</span>
+          <span className="text-sm font-semibold text-gray-900">{msg.sender?.name || 'Former Member'}</span>
           <span className="text-xs text-gray-400">
             {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
           </span>

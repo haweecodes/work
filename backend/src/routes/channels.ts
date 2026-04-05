@@ -33,7 +33,7 @@ function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
             u.name as sender_name, u.avatar_url as sender_avatar,
             c.name as channel_name
      FROM messages m
-     JOIN users u ON u.id = m.sender_id
+     LEFT JOIN users u ON u.id = m.sender_id
      LEFT JOIN channels c ON c.id = m.channel_id
      WHERE m.id = ?`,
     [sharedMessageId]
@@ -183,7 +183,7 @@ router.get('/messages/:channelId', authMiddleware, (req: Request, res: Response)
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id,
             (SELECT COUNT(id) FROM messages WHERE parent_message_id = m.id) as reply_count
      FROM messages m
-     JOIN users u ON u.id = m.sender_id
+     LEFT JOIN users u ON u.id = m.sender_id
      LEFT JOIN tasks t ON t.id = m.linked_task_id
      WHERE m.channel_id = ? AND m.parent_message_id IS NULL
      ORDER BY m.created_at ASC
@@ -300,7 +300,7 @@ router.get('/messages/:channelId/thread/:messageId', authMiddleware, (req: Reque
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id,
             (SELECT COUNT(id) FROM messages WHERE parent_message_id = m.id) as reply_count
      FROM messages m
-     JOIN users u ON u.id = m.sender_id
+     LEFT JOIN users u ON u.id = m.sender_id
      LEFT JOIN tasks t ON t.id = m.linked_task_id
      WHERE m.channel_id = ? AND m.parent_message_id = ?
      ORDER BY m.created_at ASC`,
@@ -317,7 +317,7 @@ router.get('/messages/:channelId/thread/:messageId', authMiddleware, (req: Reque
               t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id,
               0 as reply_count
        FROM messages m
-       JOIN users u ON u.id = m.sender_id
+       LEFT JOIN users u ON u.id = m.sender_id
        LEFT JOIN tasks t ON t.id = m.linked_task_id
        WHERE m.channel_id = ? AND m.parent_message_id IN (${placeholders})
        ORDER BY m.created_at ASC`,
