@@ -1,5 +1,5 @@
 {
-  "buildCommand": "yarn build:frontend",
+  "buildCommand": "yarn workspace @flowwork/frontend build",
   "outputDirectory": "apps/frontend/dist",
   "rewrites": [
     {
