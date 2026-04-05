@@ -4,20 +4,19 @@
   "private": true,
   "workspaces": ["apps/*"],
   "scripts": {
-    "dev": "nx run-many --target=dev --all --parallel",
-    "dev:frontend": "nx run frontend:dev",
-    "dev:backend": "nx run backend:dev",
+    "dev":              "concurrently \"yarn dev:frontend\" \"yarn dev:backend\"",
+    "dev:frontend":     "yarn workspace @flowwork/frontend dev",
+    "dev:backend":      "yarn workspace @flowwork/backend dev",
 
-    "build": "nx run-many --target=build --all",
-    "build:frontend": "nx run frontend:build",
-    "build:backend": "nx run backend:build",
+    "build:frontend":   "yarn workspace @flowwork/frontend build",
+    "build:backend":    "yarn workspace @flowwork/backend build",
 
-    "start:backend": "nx run backend:start",
+    "start:backend":    "yarn workspace @flowwork/backend start",
 
-    "typecheck": "nx run-many --target=typecheck --all",
-    "lint": "nx run-many --target=lint --all"
+    "typecheck":        "yarn workspace @flowwork/frontend typecheck && yarn workspace @flowwork/backend typecheck",
+    "lint":             "yarn workspace @flowwork/frontend lint"
   },
   "devDependencies": {
-    "nx": "^20.0.0"
+    "concurrently": "^8.2.2"
   }
 }
