@@ -9,6 +9,26 @@ let io: Server | undefined;
 
 export const setIo = (socketIo: Server) => { io = socketIo; };
 
+// ── Helper: notify a user about assignment change ─────────────────────────────
+function sendAssignmentNotification(
+  userId: string,
+  actorName: string,
+  taskId: string,
+  taskTitle: string,
+  type: 'task_assigned' | 'task_unassigned'
+) {
+  const notifId = uuidv4();
+  const msg = type === 'task_assigned'
+    ? `${actorName} assigned you to "${taskTitle}"`
+    : `${actorName} removed you from "${taskTitle}"`;
+
+  run(
+    'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
+    [notifId, userId, type, taskId, 'task', msg]
+  );
+  if (io) io.to(`user:${userId}`).emit('notification', { id: notifId, type, message: msg });
+}
+
 router.post('/', authMiddleware, (req: Request, res: Response) => {
   try {
     const { board_id, column_id, title, description, priority, due_date, assignee_ids, linked_message_id, parent_task_id } = req.body;
@@ -29,16 +49,12 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
     }
 
     if (assignee_ids && Array.isArray(assignee_ids)) {
+      const actorName = get<{ name: string }>('SELECT name FROM users WHERE id = ?', [req.user?.id])?.name || 'A user';
       assignee_ids.forEach(uid => {
         run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [id, uid]);
+        // Notify everyone assigned except the person who just created the task
         if (uid !== req.user?.id) {
-          const notifId = uuidv4();
-          const assigner = get('SELECT name FROM users WHERE id = ?', [req.user?.id]);
-          run(
-            'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
-            [notifId, uid, 'task_assigned', id, 'task', `${assigner?.name || 'A user'} assigned you to "${title}"`]
-          );
-          if (io) io.to(`user:${uid}`).emit('notification', { id: notifId, type: 'task_assigned' });
+          sendAssignmentNotification(uid, actorName, id, title, 'task_assigned');
         }
       });
     }
@@ -158,10 +174,32 @@ router.patch('/:id', authMiddleware, (req: Request, res: Response) => {
     );
 
     if (assignee_ids && Array.isArray(assignee_ids)) {
-      run('DELETE FROM task_assignees WHERE task_id = ?', [req.params.id]);
-      assignee_ids.forEach(uid => {
-        run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [req.params.id, uid]);
-      });
+      const ids = assignee_ids as string[];
+      const actorName = get<{ name: string }>('SELECT name FROM users WHERE id = ?', [req.user?.id])?.name || 'A user';
+      const currentAssignees = all<{ user_id: string }>('SELECT user_id FROM task_assignees WHERE task_id = ?', [req.params.id]);
+      const currentIds = new Set<string>(currentAssignees.map(a => a.user_id));
+      const newIds = new Set<string>(ids);
+
+      // Newly added members
+      for (const uid of newIds) {
+        if (!currentIds.has(uid)) {
+          run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [req.params.id, uid]);
+          if (uid !== req.user?.id) {
+            sendAssignmentNotification(String(uid), actorName, String(req.params.id), String(task.title), 'task_assigned');
+          }
+        }
+      }
+
+      // Removed members
+      for (const uid of currentIds) {
+        if (!newIds.has(uid)) {
+          run('DELETE FROM task_assignees WHERE task_id = ? AND user_id = ?', [req.params.id, uid]);
+          if (uid !== req.user?.id) {
+            sendAssignmentNotification(String(uid), actorName, String(req.params.id), String(task.title), 'task_unassigned');
+          }
+        }
+      }
+
     }
     const updated = get('SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?', [req.params.id]);
     const assignees = all(
