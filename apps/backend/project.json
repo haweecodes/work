@@ -11,10 +11,26 @@
         "cwd": "apps/backend"
       }
     },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --project tsconfig.json",
+        "cwd": "apps/backend"
+      },
+      "outputs": ["apps/backend/dist"]
+    },
     "start": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "tsx src/index.ts",
+        "command": "node dist/index.js",
+        "cwd": "apps/backend"
+      },
+      "dependsOn": ["build"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit",
         "cwd": "apps/backend"
       }
     }

@@ -22,7 +22,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const socket = io('http://localhost:3001');
+    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+    const socket = io(SOCKET_URL);
     socketRef.current = socket;
 
     socket.on('connect', () => {
