@@ -4,10 +4,13 @@ import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import useNotificationStore from '../store/notificationStore';
 import useBoardStore from '../store/boardStore';
+import useUIStore from '../store/uiStore';
 import Sidebar from '../components/Sidebar/Sidebar';
 
 // Only loaded when user opens a task — keeps initial bundle smaller
 const TaskDetailPanel = lazy(() => import('../components/TaskDetailPanel'));
+const InviteModal     = lazy(() => import('../components/InviteModal'));
+const CreateBoardModal = lazy(() => import('../components/CreateBoardModal'));
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -16,6 +19,7 @@ export default function AppLayout() {
   const { fetchNotifications } = useNotificationStore();
   const { fetchBoards } = useBoardStore();
   const selectedTask = useBoardStore(s => s.selectedTask);
+  const { showInvite, closeInvite, showCreateBoard, closeCreateBoard } = useUIStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -90,6 +94,18 @@ export default function AppLayout() {
             <TaskDetailPanel />
           </Suspense>
         </div>
+      )}
+
+      {/* Global modals */}
+      {showInvite && (
+        <Suspense fallback={null}>
+          <InviteModal onClose={closeInvite} />
+        </Suspense>
+      )}
+      {showCreateBoard && (
+        <Suspense fallback={null}>
+          <CreateBoardModal onClose={closeCreateBoard} />
+        </Suspense>
       )}
     </div>
   );
