@@ -87,13 +87,37 @@ export default function AppLayout() {
         </div>
       </div>
 
-      {/* Task detail panel */}
+      {/* Task detail panel — sidebar on desktop, full-screen overlay on mobile */}
       {selectedTask && (
-        <div className="hidden lg:block w-96 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in">
-          <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
-            <TaskDetailPanel />
-          </Suspense>
-        </div>
+        <>
+          {/* Desktop: sidebar panel */}
+          <div className="hidden lg:block w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in">
+            <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
+              <TaskDetailPanel />
+            </Suspense>
+          </div>
+
+          {/* Mobile: full-screen overlay (z-40 sits above thread panel z-10) */}
+          <div className="lg:hidden fixed inset-0 z-40 bg-white flex flex-col animate-slide-in">
+            {/* Mobile close bar */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 flex-shrink-0">
+              <button
+                onClick={() => useBoardStore.getState().setSelectedTask(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <span className="font-semibold text-sm text-gray-900 truncate">{selectedTask.title}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
+                <TaskDetailPanel />
+              </Suspense>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Global modals */}

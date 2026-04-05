@@ -1,4 +1,4 @@
-import { useState, useRef, lazy, Suspense } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import useAuthStore from '../store/authStore';
@@ -6,7 +6,6 @@ import useUIStore from '../store/uiStore';
 import MessageActionBar from './MessageActionBar';
 import type { Message, Reaction } from '../types';
 
-const InlineTaskCard = lazy(() => import('./InlineTaskCard'));
 
 interface MessageBubbleProps {
   msg: Message;
@@ -72,7 +71,10 @@ export default function MessageBubble({
   };
 
   return (
-    <div className="flex gap-3 group px-6 py-1.5 hover:bg-gray-50/80 rounded-lg transition-colors relative">
+    <div
+      data-msg-id={msg.id}
+      className="flex gap-3 group px-6 py-1.5 hover:bg-gray-50/80 rounded-lg transition-colors relative"
+    >
       <img
         src={msg.sender?.avatar_url}
         className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5"
@@ -161,12 +163,6 @@ export default function MessageBubble({
           </p>
         )}
 
-        {/* Linked task card — shown on task-created system messages */}
-        {msg.linked_task && (
-          <Suspense fallback={null}>
-            <InlineTaskCard task={msg.linked_task} />
-          </Suspense>
-        )}
 
         {/* Reaction pills — clicking calls the same toggle as the action bar */}
         {effectiveReactions.length > 0 && (

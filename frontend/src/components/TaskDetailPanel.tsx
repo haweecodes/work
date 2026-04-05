@@ -38,38 +38,48 @@ export default function TaskDetailPanel() {
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [loading, setLoading] = useState(false);
   
   // Inline Subtask State
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [creatingSubtask, setCreatingSubtask] = useState(false);
 
   // Re-fetch the full task (with joined message data) whenever the selected task changes.
-  // The task objects in the Zustand store may be stale/partial (loaded from board fetch
-  // before the JOIN was in place), so we always pull fresh data from the dedicated endpoint.
+  // The task objects in the store may be partial (opened from a message chip), so we always
+  // pull fresh data from the dedicated endpoint before rendering the form.
   useEffect(() => {
     if (!selectedTask) return;
+    setLoading(true);
+    setForm(null); // clear stale form while loading
     client.get(`/api/tasks/task/${selectedTask.id}`)
       .then(({ data }) => {
-        // Merge into store so linked_channel_id etc. are available
-        setSelectedTask({ ...selectedTask, ...data });
+        const merged = { ...selectedTask, ...data };
+        setSelectedTask(merged);
+        setForm({
+          title: merged.title,
+          description: merged.description || '',
+          priority: merged.priority || 'medium',
+          due_date: merged.due_date || '',
+          column_id: merged.column_id,
+          assignee_ids: merged.assignees?.map((a: any) => a.id) || [],
+          parent_task_id: merged.parent_task_id || '',
+        });
       })
-      .catch(() => {/* silently ignore, display with whatever data we have */});
+      .catch(() => {
+        // Fallback: use whatever data we have
+        setForm({
+          title: selectedTask.title,
+          description: selectedTask.description || '',
+          priority: selectedTask.priority || 'medium',
+          due_date: selectedTask.due_date || '',
+          column_id: selectedTask.column_id || '',
+          assignee_ids: selectedTask.assignees?.map(a => a.id) || [],
+          parent_task_id: selectedTask.parent_task_id || '',
+        });
+      })
+      .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id]);
-
-  useEffect(() => {
-    if (selectedTask) {
-      setForm({
-        title: selectedTask.title,
-        description: selectedTask.description || '',
-        priority: selectedTask.priority || 'medium',
-        due_date: selectedTask.due_date || '',
-        column_id: selectedTask.column_id,
-        assignee_ids: selectedTask.assignees?.map(a => a.id) || [],
-        parent_task_id: selectedTask.parent_task_id || '',
-      });
-    }
-  }, [selectedTask?.id, selectedTask?.parent_task_id]);
 
   const handleSave = async () => {
     if (!form || !selectedTask) return;
@@ -131,7 +141,17 @@ export default function TaskDetailPanel() {
     }) : null);
   };
 
-  if (!selectedTask || !form) return null;
+  if (!selectedTask) return null;
+  if (loading || !form) return (
+    <div className="h-full flex flex-col animate-pulse p-5 space-y-4">
+      <div className="h-5 bg-gray-200 rounded w-3/4" />
+      <div className="h-3 bg-gray-100 rounded w-1/2" />
+      <div className="h-3 bg-gray-100 rounded w-2/3" />
+      <div className="h-20 bg-gray-100 rounded" />
+      <div className="h-8 bg-gray-100 rounded" />
+    </div>
+  );
+
 
   const ps = PRIORITY_STYLES[form.priority] || PRIORITY_STYLES.medium;
   const allTasks = columns.flatMap(c => c.tasks);
@@ -263,22 +283,21 @@ export default function TaskDetailPanel() {
                 {selectedTask.linked_message_id && (
                   <button 
                     onClick={() => {
-                      // Open the thread panel for the message
-                      // If it's a reply it has a parent, if it's the root message it IS the parent
+                      // Open the thread panel on the correct parent message
                       if (selectedTask.linked_parent_message_id) {
                         setActiveThreadId(selectedTask.linked_parent_message_id);
                       } else if (selectedTask.linked_message_id) {
                         setActiveThreadId(selectedTask.linked_message_id);
                       }
-                      
-                      // Navigate to the backing channel/DM holding the thread
+
+                      // Navigate to the channel/DM with the message highlighted
+                      const highlightId = selectedTask.linked_message_id;
                       if (selectedTask.linked_channel_id) {
-                        navigate(`/app/channels/${selectedTask.linked_channel_id}`);
+                        navigate(`/channel/${selectedTask.linked_channel_id}?highlight=${highlightId}`);
                       } else if (selectedTask.linked_dm_thread_id) {
-                        navigate(`/app/dms/${selectedTask.linked_dm_thread_id}`);
-                      } else {
-                        console.warn("No route parameters for message jump.", selectedTask);
+                        navigate(`/dm/${selectedTask.linked_dm_thread_id}?highlight=${highlightId}`);
                       }
+
                     }}
                     className="flex-shrink-0 text-xs font-semibold text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2.5 py-1.5 rounded-lg border border-primary-100 transition-colors flex items-center gap-1.5"
                   >

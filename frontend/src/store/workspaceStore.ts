@@ -30,12 +30,36 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isInitialized: false,
 
   setCurrentWorkspace: async (workspace: Workspace) => {
+    // ── Reset all workspace-scoped state before loading the new one ──────────
+    // Import stores lazily to avoid circular deps
+    const { default: useBoardStore }  = await import('./boardStore');
+    const { default: useUIStore }     = await import('./uiStore');
+    const { default: useNotifStore }  = await import('./notificationStore');
+
+    // Clear board / task drawer
+    useBoardStore.setState({ columns: [], boards: [], selectedTask: null });
+
+    // Clear open thread, unread counts, and any open modals
+    useUIStore.setState({
+      activeThreadId: null,
+      channelUnread: {},
+      dmUnread: {},
+      threadUnread: {},
+      showCreateBoard: false,
+      showInvite: false,
+    });
+
+    // Clear notifications (will be re-fetched by AppLayout)
+    useNotifStore.setState({ notifications: [] });
+
+    // Switch workspace and load its data
     localStorage.setItem('fw_workspace', JSON.stringify(workspace));
-    set({ currentWorkspace: workspace });
+    set({ currentWorkspace: workspace, channels: [], dmThreads: [], members: [] });
     await get().fetchChannels(workspace.id);
     await get().fetchMembers(workspace.id);
     await get().fetchDmThreads(workspace.id);
   },
+
 
   fetchWorkspaces: async () => {
     const { data } = await client.get<Workspace[]>('/api/workspaces');

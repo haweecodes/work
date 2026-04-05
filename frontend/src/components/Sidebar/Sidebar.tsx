@@ -59,9 +59,13 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   };
 
   const handleSwitchWorkspace = async (ws: Workspace) => {
+    if (ws.id === currentWorkspace?.id) { setShowWorkspaces(false); return; }
+    setShowWorkspaces(false);
+    setShowNotif(false);
+    setAddingChannel(false);
+    setNewChannelName('');
     await setCurrentWorkspace(ws);
     await fetchBoards(ws.id);
-    setShowWorkspaces(false);
     navigate('/');
   };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useContext, useOptimistic, lazy, Suspense } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -33,6 +33,8 @@ export default function ChannelView() {
   const endRef = useRef<HTMLDivElement>(null);
 
   const channel = channels.find(c => c.id === channelId);
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
 
   // ── useOptimistic for messages ──────────────────────────────────────────────
   // Provides instant UI feedback when the user sends a message, before the
@@ -84,7 +86,18 @@ export default function ChannelView() {
       .then(({ data }) => {
         setMessages(data);
         setLoading(false);
-        setTimeout(scrollToBottom, 60);
+        setTimeout(() => {
+          if (highlightId) {
+            const el = document.querySelector(`[data-msg-id="${highlightId}"]`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('msg-highlight');
+              setTimeout(() => el.classList.remove('msg-highlight'), 3000);
+              return;
+            }
+          }
+          scrollToBottom();
+        }, 60);
       })
       .catch(() => setLoading(false));
 

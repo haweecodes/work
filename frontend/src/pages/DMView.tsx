@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useContext, useOptimistic, lazy, Suspense } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -35,6 +35,8 @@ export default function DMView() {
   const otherParticipants = thread?.participants?.filter(p => p.id !== user?.id) || [];
   const title = otherParticipants.map(p => p.name).join(', ') || 'Direct Message';
   const activeBoard = boards[0];
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
 
   // ── useOptimistic for instant send feedback ──────────────────────────────────
   const [optimisticMessages, addOptimistic] = useOptimistic(
@@ -85,7 +87,18 @@ export default function DMView() {
       .then(({ data }) => {
         setMessages(data);
         setLoading(false);
-        setTimeout(scrollToBottom, 60);
+        setTimeout(() => {
+          if (highlightId) {
+            const el = document.querySelector(`[data-msg-id="${highlightId}"]`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('msg-highlight');
+              setTimeout(() => el.classList.remove('msg-highlight'), 3000);
+              return;
+            }
+          }
+          scrollToBottom();
+        }, 60);
       })
       .catch(() => setLoading(false));
 
