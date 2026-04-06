@@ -65,6 +65,7 @@ function enrichDmMessage(m: any) {
     const col = get('SELECT title FROM columns WHERE id = ?', [m.task_column_id]);
     linked_task = {
       id: m.task_id, title: m.task_title, priority: m.task_priority,
+      task_key: m.task_key, task_number: m.task_number,
       column_title: col?.title || '', assignees
     };
   }
@@ -156,7 +157,7 @@ router.post('/threads', authMiddleware, (req: Request, res: Response) => {
 router.get('/:threadId', authMiddleware, (req: Request, res: Response) => {
   const messages = all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
-            t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id,
+            t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
             (SELECT COUNT(id) FROM messages WHERE parent_message_id = m.id) as reply_count
      FROM messages m LEFT JOIN users u ON u.id = m.sender_id
      LEFT JOIN tasks t ON t.id = m.linked_task_id
@@ -268,7 +269,7 @@ router.post('/:threadId', authMiddleware, (req: Request, res: Response) => {
 router.get('/:threadId/thread/:messageId', authMiddleware, (req: Request, res: Response) => {
   const depth1 = all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
-            t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id,
+            t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
             (SELECT COUNT(id) FROM messages WHERE parent_message_id = m.id) as reply_count
      FROM messages m
      LEFT JOIN users u ON u.id = m.sender_id
@@ -284,7 +285,7 @@ router.get('/:threadId/thread/:messageId', authMiddleware, (req: Request, res: R
     const placeholders = depth1Ids.map(() => '?').join(',');
     depth2 = all(
       `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
-              t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id,
+              t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
               0 as reply_count
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id

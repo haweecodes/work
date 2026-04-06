@@ -23,8 +23,20 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
     const id = uuidv4();
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    run('INSERT INTO boards (id, workspace_id, name) VALUES (?, ?, ?)',
-      [id, workspace_id, name]);
+    let baseKey = name.split(/\s+/).map((w: string) => w[0]?.toUpperCase()).join('').substring(0, 5).replace(/[^A-Z]/g, '');
+    if (!baseKey) baseKey = 'BRD';
+    
+    let project_key = baseKey;
+    let counter = 1;
+    while (true) {
+      const existing = get('SELECT 1 FROM boards WHERE workspace_id = ? AND project_key = ?', [workspace_id, project_key]);
+      if (!existing) break;
+      project_key = `${baseKey}${counter}`;
+      counter++;
+    }
+
+    run('INSERT INTO boards (id, workspace_id, name, project_key) VALUES (?, ?, ?, ?)',
+      [id, workspace_id, name, project_key]);
 
     const defaultCols = ['To Do', 'In Progress', 'In Review', 'Done'];
     defaultCols.forEach((title, i) => {

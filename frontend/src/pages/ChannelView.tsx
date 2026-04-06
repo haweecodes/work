@@ -11,9 +11,9 @@ import { MessageListSkeleton } from '../components/Skeleton';
 import type { Message, Task, Reaction } from '../types';
 
 // Heavy panels/modals — lazily loaded only when needed
-const ThreadPanel    = lazy(() => import('../components/ThreadPanel'));
+const ThreadPanel = lazy(() => import('../components/ThreadPanel'));
 const CreateTaskModal = lazy(() => import('../components/CreateTaskModal'));
-const ShareModal     = lazy(() => import('../components/ShareModal'));
+const ShareModal = lazy(() => import('../components/ShareModal'));
 
 export default function ChannelView() {
   const { channelId } = useParams<{ channelId: string }>();
@@ -249,7 +249,7 @@ export default function ChannelView() {
               <p className="text-sm text-gray-400">You are viewing a read-only history. New messages cannot be sent.</p>
             </div>
           ) : (
-            <form onSubmit={handleSend} className="flex items-end gap-3">
+            <form onSubmit={handleSend} className="flex items-center gap-3">
               <div className="flex-1 relative">
                 <textarea
                   className="input resize-none pr-12 py-3 min-h-[44px] max-h-32"

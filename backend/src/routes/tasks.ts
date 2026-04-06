@@ -9,12 +9,13 @@ let io: Server | undefined;
 
 export const setIo = (socketIo: Server) => { io = socketIo; };
 
-// ── Helper: notify a user about assignment change ─────────────────────────────
 function sendAssignmentNotification(
   userId: string,
+  actorId: string,
   actorName: string,
   taskId: string,
   taskTitle: string,
+  boardId: string,
   type: 'task_assigned' | 'task_unassigned'
 ) {
   const notifId = uuidv4();
@@ -27,6 +28,74 @@ function sendAssignmentNotification(
     [notifId, userId, type, taskId, 'task', msg]
   );
   if (io) io.to(`user:${userId}`).emit('notification', { id: notifId, type, message: msg });
+
+  // Also send a DM notification if assigned or unassigned
+  if ((type === 'task_assigned' || type === 'task_unassigned') && actorId !== userId) {
+    const assigneeName = get<{ name: string }>('SELECT name FROM users WHERE id = ?', [userId])?.name || 'A user';
+    const payload = JSON.stringify({ type, actorId, actorName, assigneeId: userId, assigneeName, taskTitle });
+    
+    const board = get('SELECT workspace_id FROM boards WHERE id = ?', [boardId]);
+    const creator = get<{ name: string; avatar_url: string }>('SELECT name, avatar_url FROM users WHERE id = ?', [actorId]);
+    const taskObj = get('SELECT id, title, priority, task_key, task_number FROM tasks WHERE id = ?', [taskId]);
+
+    if (board?.workspace_id) {
+      // 1. Send DM to assignee
+      let threadId = get(
+        `SELECT dt.id FROM dm_threads dt
+         JOIN dm_participants dp1 ON dt.id = dp1.thread_id AND dp1.user_id = ?
+         JOIN dm_participants dp2 ON dt.id = dp2.thread_id AND dp2.user_id = ?
+         WHERE dt.workspace_id = ? LIMIT 1`,
+        [actorId, userId, board.workspace_id]
+      )?.id;
+
+      if (!threadId) {
+        threadId = uuidv4();
+        run('INSERT INTO dm_threads (id, workspace_id) VALUES (?, ?)', [threadId, board.workspace_id]);
+        run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [threadId, actorId]);
+        run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [threadId, userId]);
+      }
+
+      const systemId = uuidv4();
+      run(
+        'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, is_system) VALUES (?, ?, ?, ?, ?, 1)',
+        [systemId, threadId, actorId, payload, taskId]
+      );
+
+      const systemMsg = {
+        id: systemId, dm_thread_id: threadId, sender_id: actorId, content: payload,
+        linked_task_id: taskId, linked_task: taskObj, created_at: new Date().toISOString(),
+        sender: { id: actorId, name: creator?.name, avatar_url: creator?.avatar_url },
+        parent_message_id: null, reply_count: 0, reactions: [], is_system: 1,
+      };
+
+      if (io) {
+        io.to(`dm:${threadId}`).emit('new_dm', systemMsg);
+        io.to(`user:${userId}`).emit('notification', { id: uuidv4(), type: 'dm' });
+      }
+    }
+
+    // 2. Broadcast to linked channel if exists
+    const origin = get<{ channel_id: string | null }>(
+      `SELECT m.channel_id FROM tasks t JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?`,
+      [taskId]
+    );
+    if (origin?.channel_id) {
+      const sysIdChannel = uuidv4();
+      run(
+        'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, is_system) VALUES (?, ?, ?, ?, ?, 1)',
+        [sysIdChannel, origin.channel_id, actorId, payload, taskId]
+      );
+      if (io) {
+        const channelMsg = {
+          id: sysIdChannel, channel_id: origin.channel_id, sender_id: actorId, content: payload,
+          linked_task_id: taskId, linked_task: taskObj, created_at: new Date().toISOString(),
+          sender: { id: actorId, name: creator?.name, avatar_url: creator?.avatar_url },
+          parent_message_id: null, reply_count: 0, reactions: [], is_system: 1,
+        };
+        io.to(`channel:${origin.channel_id}`).emit('new_message', channelMsg);
+      }
+    }
+  }
 }
 
 router.post('/', authMiddleware, (req: Request, res: Response) => {
@@ -37,11 +106,19 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
     }
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
+    const board = get('SELECT id, project_key FROM boards WHERE id = ?', [board_id]);
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+
+    run('UPDATE boards SET task_sequence = task_sequence + 1 WHERE id = ?', [board_id]);
+    const updatedBoard = get<{ task_sequence: number }>('SELECT task_sequence FROM boards WHERE id = ?', [board_id]);
+    const task_number = updatedBoard!.task_sequence;
+    const task_key = `${board.project_key}-${task_number}`;
+
     const existing = all('SELECT id FROM tasks WHERE column_id = ?', [column_id]);
     const id = uuidv4();
     run(
-      'INSERT INTO tasks (id, board_id, column_id, title, description, priority, due_date, created_by, linked_message_id, parent_task_id, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, board_id, column_id, title, description || '', priority || 'medium', due_date || null, req.user.id, linked_message_id || null, parent_task_id || null, existing.length]
+      'INSERT INTO tasks (id, board_id, column_id, title, description, priority, due_date, created_by, linked_message_id, parent_task_id, position, task_number, task_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, board_id, column_id, title, description || '', priority || 'medium', due_date || null, req.user.id, linked_message_id || null, parent_task_id || null, existing.length, task_number, task_key]
     );
 
     if (linked_message_id) {
@@ -54,7 +131,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
         run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [id, uid]);
         // Notify everyone assigned except the person who just created the task
         if (uid !== req.user?.id) {
-          sendAssignmentNotification(uid, actorName, id, title, 'task_assigned');
+          sendAssignmentNotification(uid, req.user!.id, actorName, id, title, board_id, 'task_assigned');
         }
       });
     }
@@ -96,7 +173,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
             sender_id: req.user.id,
             content: systemContent,
             linked_task_id: id,
-            linked_task: { id, title, priority: priority || 'medium' },
+            linked_task: { id, title, priority: priority || 'medium', task_key, task_number },
             created_at: new Date().toISOString(),
             sender: { id: req.user.id, name: creator?.name, avatar_url: creator?.avatar_url },
             parent_message_id: postParentId,
@@ -134,7 +211,7 @@ router.post('/', authMiddleware, (req: Request, res: Response) => {
             sender_id: req.user.id,
             content: systemContent,
             linked_task_id: id,
-            linked_task: { id, title, priority: priority || 'medium' },
+            linked_task: { id, title, priority: priority || 'medium', task_key, task_number },
             created_at: new Date().toISOString(),
             sender: { id: req.user.id, name: creator?.name, avatar_url: creator?.avatar_url },
             parent_message_id: origin.parent_message_id || null,
@@ -187,7 +264,7 @@ router.patch('/:id', authMiddleware, (req: Request, res: Response) => {
         if (!currentIds.has(uid)) {
           run('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)', [req.params.id, uid]);
           if (uid !== req.user?.id) {
-            sendAssignmentNotification(String(uid), actorName, String(req.params.id), String(task.title), 'task_assigned');
+            sendAssignmentNotification(String(uid), req.user!.id, actorName, String(req.params.id), String(task.title), task.board_id, 'task_assigned');
           }
         }
       }
@@ -197,7 +274,7 @@ router.patch('/:id', authMiddleware, (req: Request, res: Response) => {
         if (!newIds.has(uid)) {
           run('DELETE FROM task_assignees WHERE task_id = ? AND user_id = ?', [req.params.id, uid]);
           if (uid !== req.user?.id) {
-            sendAssignmentNotification(String(uid), actorName, String(req.params.id), String(task.title), 'task_unassigned');
+            sendAssignmentNotification(String(uid), req.user!.id, actorName, String(req.params.id), String(task.title), task.board_id, 'task_unassigned');
           }
         }
       }
@@ -228,6 +305,31 @@ router.patch('/:id/move', authMiddleware, (req: Request, res: Response) => {
     const updated = get('SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?', [req.params.id]);
     if (io) io.to(`board:${updated.board_id}`).emit('task_updated', { type: 'moved', task: updated });
     res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Resolve short task link like WEB-12 to its full routing context
+router.get('/resolve/:taskKey', authMiddleware, (req: Request, res: Response) => {
+  try {
+    const taskKey = String(req.params.taskKey).toUpperCase();
+    const workspaceId = req.query.workspace_id;
+    
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspace_id is required' });
+    }
+
+    const task = get(
+      `SELECT t.id as task_id, t.board_id, b.workspace_id 
+       FROM tasks t 
+       JOIN boards b ON t.board_id = b.id 
+       WHERE UPPER(t.task_key) = ? AND b.workspace_id = ?`,
+      [taskKey, workspaceId]
+    );
+    
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    res.json(task);
   } catch (err: any) {
     res.status(500).json({ error: 'Server error' });
   }

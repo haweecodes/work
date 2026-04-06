@@ -17,9 +17,10 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-function NavItem({ to, icon, label, unread = 0 }: { to: string, icon: React.ReactNode, label: string, unread?: number }) {
+function NavItem({ to, icon, label, title, unread = 0 }: { to: string, icon: React.ReactNode, label: string, title?: string, unread?: number }) {
   return (
     <NavLink to={to}
+      title={title}
       className={({ isActive: active }) =>
         `flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors duration-100 group
          ${active ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`
@@ -181,17 +182,32 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           <div className="space-y-0.5">
             {members.filter(m => m.id !== user?.id).map(m => {
               const thread = dmThreads.find(t => t.participants?.some(p => p.id === m.id) && t.participants?.some(p => p.id === user?.id));
+              const labelContent = (
+                <div className="flex flex-col min-w-0">
+                  <span className="truncate leading-tight text-sm">{m.name}</span>
+                  {m.email && <span className="truncate text-[10px] text-gray-400 font-normal leading-tight">{m.email}</span>}
+                </div>
+              );
+              
               return thread ? (
-                <NavItem key={thread.id} to={`/dm/${thread.id}`}
-                  icon={<img src={m.avatar_url} className="w-4 h-4 rounded-full" />}
-                  label={m.name}
-                  unread={dmUnread[thread.id] || 0}
-                />
+                <NavLink key={thread.id} to={`/dm/${thread.id}`}
+                  title={m.email}
+                  className={({ isActive: active }) =>
+                    `flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors duration-100 group
+                     ${active ? 'bg-primary-100 text-primary-700' : 'text-gray-600 hover:bg-gray-100'}`
+                  }>
+                  <img src={m.avatar_url} className="w-6 h-6 rounded-full flex-shrink-0" />
+                  <div className={`truncate flex-1 ${dmUnread[thread.id] ? 'font-semibold text-gray-900' : ''}`}>
+                    {labelContent}
+                  </div>
+                  <UnreadBadge count={dmUnread[thread.id] || 0} />
+                </NavLink>
               ) : (
                 <button key={m.id} onClick={() => handleStartDM(m.id)}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors">
-                  <img src={m.avatar_url} className="w-4 h-4 rounded-full flex-shrink-0" />
-                  <span className="truncate">{m.name}</span>
+                  title={m.email}
+                  className="w-full flex items-center text-left gap-2.5 px-3 py-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors">
+                  <img src={m.avatar_url} className="w-6 h-6 rounded-full flex-shrink-0" />
+                  <div className="truncate flex-1">{labelContent}</div>
                 </button>
               );
             })}

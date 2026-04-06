@@ -216,7 +216,7 @@ export default function DMView() {
 
         {/* Compose */}
         <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
-          <form onSubmit={handleSend} className="flex items-end gap-3">
+          <form onSubmit={handleSend} className="flex items-center gap-3">
             <textarea
               className="input flex-1 resize-none py-3 min-h-[44px] max-h-32"
               placeholder={`Message ${title}…`}

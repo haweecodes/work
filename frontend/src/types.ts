@@ -36,6 +36,8 @@ export interface Board {
   id: string;
   workspace_id: string;
   name: string;
+  project_key?: string;
+  task_sequence?: number;
 }
 
 export interface TaskAssignee {
@@ -61,6 +63,8 @@ export interface Task {
   linked_task_id?: string;
   linked_task?: Task;
   position?: number;
+  task_number?: number;
+  task_key?: string;
   created_at?: string;
   assignees?: TaskAssignee[];
   column_title?: string;

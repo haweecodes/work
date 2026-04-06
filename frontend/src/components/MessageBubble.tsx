@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import useAuthStore from '../store/authStore';
 import useUIStore from '../store/uiStore';
+import useBoardStore from '../store/boardStore';
 import MessageActionBar from './MessageActionBar';
 import type { Message, Reaction } from '../types';
 
@@ -31,6 +32,7 @@ export default function MessageBubble({
   const user = useAuthStore(s => s.user);
   const { threadUnread, setActiveThreadId } = useUIStore();
   const navigate = useNavigate();
+  const { selectedTask, setSelectedTask } = useBoardStore();
 
   const [reactions, setReactions] = useState<Reaction[]>(msg.reactions ?? []);
   // Give pills access to ActionBar's toggle without prop drilling
@@ -72,16 +74,64 @@ export default function MessageBubble({
 
   // Render system message (e.g., Task created)
   if (msg.is_system === 1) {
+    const isTaskLink = !!msg.linked_task;
     return (
       <div
         data-msg-id={msg.id}
-        className="flex justify-center px-6 py-2 relative"
+        className="flex gap-3 group px-6 py-2 hover:bg-gray-50/50 transition-colors relative"
       >
-        <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-1.5 text-xs text-gray-600 font-medium flex items-center gap-2 shadow-sm">
-          <span>{renderContent(msg.content)}</span>
-          <span className="text-gray-400 font-normal text-[10px]">
-            {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
-          </span>
+        <img
+          src={msg.sender?.avatar_url}
+          className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 opacity-80"
+          alt={msg.sender?.name}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-gray-700">{msg.sender?.name || 'System'}</span>
+            <span className="text-xs text-gray-400">
+              {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium tracking-wide shadow-sm border border-gray-200/50">system</span>
+          </div>
+
+          <div
+            onClick={() => {
+              if (isTaskLink && msg.linked_task && selectedTask?.id !== msg.linked_task.id) {
+                setSelectedTask(msg.linked_task);
+              }
+            }}
+            className={`
+              mt-1 inline-block border border-gray-100 rounded-lg px-3.5 py-2.5 text-sm text-gray-600 bg-gray-50
+              ${isTaskLink ? 'cursor-pointer hover:bg-white hover:border-primary-200 hover:shadow-sm transition-all group/sysbox' : ''}
+            `}
+          >
+            <span>{renderContent((() => {
+              if (msg.content.startsWith('{')) {
+                try {
+                  const p = JSON.parse(msg.content);
+                  if (p.type === 'task_assigned') {
+                    if (msg.channel_id) return `${p.actorName} assigned a task to **${p.assigneeName}**: **${p.taskTitle}**`;
+                    if (p.actorId === user?.id) return `You assigned a task: **${p.taskTitle}**`;
+                    return `Assigned you to a task: **${p.taskTitle}**`;
+                  }
+                  if (p.type === 'task_unassigned') {
+                    if (msg.channel_id) return `${p.actorName} removed **${p.assigneeName}** from a task: **${p.taskTitle}**`;
+                    if (p.actorId === user?.id) return `You removed them from a task: **${p.taskTitle}**`;
+                    return `Removed you from a task: **${p.taskTitle}**`;
+                  }
+                } catch(e) {}
+              }
+              return msg.content;
+            })())}</span>
+            {isTaskLink && (
+              <div className="mt-2 flex items-center gap-1.5 text-primary-600 font-semibold text-[11px] border-t border-gray-200/60 pt-2 opacity-80 group-hover/sysbox:opacity-100 group-hover/sysbox:text-primary-700 transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                </svg>
+                View task: <span className="font-medium">{msg.linked_task?.task_key ? `${msg.linked_task.task_key} ` : ''}{msg.linked_task?.title}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

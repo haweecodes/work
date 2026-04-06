@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useContext, lazy, Suspense } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
   closestCorners,
@@ -38,13 +38,24 @@ const PRIORITY_BADGE: Record<string, string> = {
 // ── TaskCard ──────────────────────────────────────────────────────────────────
 
 function TaskCard({ task }: { task: Task }) {
+  const [_, setSearchParams] = useSearchParams();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSelfDragging } = useSortable({ id: task.id });
   const { setSelectedTask, columns } = useBoardStore();
+  const [copiedKey, setCopiedKey] = useState(false);
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   const allTasks = columns.flatMap(c => c.tasks ?? []);
   const subtasksCount = allTasks.filter(t => t.parent_task_id === task.id).length;
   const parentTask = task.parent_task_id ? allTasks.find(t => t.id === task.parent_task_id) : null;
+
+  const handleCopyKey = (e: React.MouseEvent) => {
+    e.stopPropagation(); // prevent opening the detail panel
+    if (task.task_key) {
+      navigator.clipboard.writeText(window.location.origin + '/t/' + task.task_key);
+      setCopiedKey(true);
+      setTimeout(() => setCopiedKey(false), 2000);
+    }
+  };
 
   return (
     <div
@@ -53,15 +64,45 @@ function TaskCard({ task }: { task: Task }) {
       className={`bg-white rounded-xl border border-gray-100 shadow-card p-3.5 cursor-pointer
         hover:border-primary-200 hover:shadow-md transition-all duration-150 group flex flex-col gap-3
         ${isSelfDragging ? 'opacity-40' : ''}`}
-      onClick={() => setSelectedTask(task)}
+      onClick={() => {
+         if (task.task_key) {
+           // We explicitly tell react-router to update the URL.
+           setSearchParams({ taskKey: task.task_key }, { replace: true });
+           
+           // Local override for snappy immediate UI response
+           setSelectedTask(task);
+         } else {
+           setSelectedTask(task);
+         }
+      }}
       {...attributes}
       {...listeners}
     >
       <div className="flex items-start gap-2">
         <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${PRIORITY_DOT[task.priority || 'medium'] || 'bg-gray-300'}`} />
-        <p className="text-sm font-medium text-gray-900 leading-snug flex-1 group-hover:text-primary-700 transition-colors">
-          {task.title}
-        </p>
+        <div className="flex flex-col flex-1 min-w-0">
+          {task.task_key && (
+            <button
+              onClick={handleCopyKey}
+              title="Copy task ID"
+              className="text-[10px] font-bold text-gray-400 tracking-wide hover:text-primary-600 transition-colors flex items-center gap-1 group/copy w-max"
+            >
+              {task.task_key}
+              {copiedKey ? (
+                <svg className="w-2.5 h-2.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+            </button>
+          )}
+          <p className="text-sm font-medium text-gray-900 leading-snug group-hover:text-primary-700 transition-colors mt-0.5">
+            {task.title}
+          </p>
+        </div>
       </div>
 
       <div className="flex items-center justify-between mt-auto">
@@ -134,11 +175,10 @@ function EmptyDropZone({ colId, onAddTask }: { colId: string; onAddTask: () => v
   return (
     <div
       ref={setNodeRef}
-      className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed min-h-[120px] text-center transition-colors ${
-        isOver
+      className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed min-h-[120px] text-center transition-colors ${isOver
           ? 'border-primary-400 bg-primary-50/60'
           : 'border-gray-200 bg-transparent'
-      }`}
+        }`}
     >
       <p className="text-xs text-gray-400">{isOver ? 'Drop here' : 'No tasks yet'}</p>
       {!isOver && (
@@ -194,11 +234,13 @@ function Column({ col, onAddTask }: { col: ColumnType; onAddTask: (colId: string
 
 export default function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
-  const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn } = useBoardStore();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn, selectedTask, setSelectedTask } = useBoardStore();
   const socketRef = useContext(SocketContext);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [createInColumn, setCreateInColumn] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
   /**
@@ -212,9 +254,21 @@ export default function BoardView() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   useEffect(() => {
-    if (!boardId) return;
+    console.log('[BoardView] Mount/Update useEffect triggered with boardId:', boardId);
+    if (!boardId) {
+      console.warn('[BoardView] No boardId available in params!');
+      return;
+    }
+
+    console.log('[BoardView] Calling fetchColumns for boardId:', boardId);
     setLoading(true);
-    fetchColumns(boardId).finally(() => setLoading(false));
+    fetchColumns(boardId)
+      .then(res => console.log('[BoardView] fetchColumns successful. Columns count:', res.length))
+      .catch(err => console.error('[BoardView] fetchColumns error:', err))
+      .finally(() => {
+        console.log('[BoardView] fetchColumns finally block, setting loading false');
+        setLoading(false);
+      });
 
     const socket = socketRef?.current;
     // Use named handler so cleanup only removes this specific listener
@@ -226,7 +280,38 @@ export default function BoardView() {
       socket.on('task_updated', handleTaskUpdated);
     }
     return () => { if (socket) socket.off('task_updated', handleTaskUpdated); };
-  }, [boardId]);
+  }, [boardId, fetchColumns, updateTaskInColumn, socketRef]);
+
+  useEffect(() => {
+    // UNIDIRECTIONAL SYNC: URL -> State
+    // We only read from the URL to hydrate the selection or handle URL changes.
+    // If we deliberately closed it, the search param will be null or empty string.
+    if (loading) return;
+    
+    const urlTaskKey = searchParams.get('taskKey');
+    
+    if (urlTaskKey) {
+      const allTasks = columns.flatMap(c => c.tasks ?? []);
+      const target = allTasks.find(t => t.task_key === urlTaskKey);
+      if (target) {
+        if (target.id !== selectedTask?.id) {
+          setSelectedTask(target);
+        }
+      } else {
+        // The URL specifies a taskKey but it's not found on this board.
+        // E.g. an invalid URL, or the task was deleted.
+        if (selectedTask) setSelectedTask(null);
+      }
+    } else if (selectedTask) {
+      // If the URL has no taskKey, it means we closed the panel or navigated away.
+      // So we clear the internal state.
+      setSelectedTask(null);
+    }
+  }, [searchParams, columns, loading, selectedTask?.id, setSelectedTask]);
+
+  // We DO NOT write selectedTask back to the URL aggressively.
+  // When a user clicks a task, TaskCard sets it in the URL via history manipulation,
+  // OR the user clicks close in TaskDetailPanel which explicitly clears the search param.
 
   const handleDragStart = (event: DragStartEvent) => {
     const task = columns.flatMap(c => c.tasks ?? []).find(t => t.id === event.active.id);
@@ -332,8 +417,20 @@ export default function BoardView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search tasks..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="input text-xs py-1.5 pl-8 w-48 border-gray-200 shadow-sm focus:ring-primary-500 focus:border-primary-500"
+            />
+            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
           <button onClick={handleAddColumn} className="btn-ghost text-xs">+ Add column</button>
-          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary text-xs px-3 py-1.5">
+          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary text-xs px-3 py-1.5 shadow-sm">
             + New task
           </button>
         </div>
@@ -349,9 +446,17 @@ export default function BoardView() {
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-4 h-full">
-            {columns.map(col => (
-              <Column key={col.id} col={col} onAddTask={handleAddTask} />
-            ))}
+            {columns.map(col => {
+              const filteredCol = {
+                ...col,
+                tasks: (col.tasks ?? []).filter(t => {
+                  if (!searchQuery) return true;
+                  const q = searchQuery.toLowerCase();
+                  return t.title.toLowerCase().includes(q) || t.task_key?.toLowerCase().includes(q);
+                })
+              };
+              return <Column key={col.id} col={filteredCol} onAddTask={handleAddTask} />;
+            })}
 
             {columns.length === 0 && (
               <div className="flex items-center justify-center w-full">

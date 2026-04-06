@@ -109,7 +109,10 @@ export default function AppLayout() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <span className="font-semibold text-sm text-gray-900 truncate">{selectedTask.title}</span>
+              <span className="font-semibold text-sm text-gray-900 truncate">
+                {selectedTask.task_key ? `${selectedTask.task_key} ` : ''}
+                {selectedTask.title}
+              </span>
             </div>
             <div className="flex-1 overflow-y-auto">
               <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>

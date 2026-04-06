@@ -207,6 +207,47 @@ export async function initDb() {
   } catch {
     // Column might already exist
   }
+
+  // Jira-like project keys and task sequences
+  try {
+    db.run('ALTER TABLE boards ADD COLUMN project_key TEXT');
+    db.run('ALTER TABLE boards ADD COLUMN task_sequence INTEGER DEFAULT 0');
+    saveDb();
+  } catch {}
+
+  try {
+    db.run('ALTER TABLE tasks ADD COLUMN task_number INTEGER');
+    db.run('ALTER TABLE tasks ADD COLUMN task_key TEXT');
+    saveDb();
+  } catch {}
+
+  // Backfill boards that are missing project_key
+  const boardsMissingKey = all('SELECT id, workspace_id, name FROM boards WHERE project_key IS NULL OR project_key = ""');
+  for (const b of boardsMissingKey) {
+    let baseKey = (b.name || 'BRD').split(/\s+/).map((w: string) => w[0]?.toUpperCase()).join('').substring(0, 5).replace(/[^A-Z]/g, '');
+    if (!baseKey) baseKey = 'BRD';
+    
+    let key = baseKey;
+    let counter = 1;
+    while (true) {
+      // Ensure unique within workspace
+      const existing = get('SELECT 1 FROM boards WHERE workspace_id = ? AND project_key = ? AND id != ?', [b.workspace_id, key, b.id]);
+      if (!existing) break;
+      key = `${baseKey}${counter}`;
+      counter++;
+    }
+    
+    // Now backfill tasks for this board
+    const boardTasks = all('SELECT id FROM tasks WHERE board_id = ? ORDER BY created_at ASC', [b.id]);
+    let tSeq = 0;
+    for (const t of boardTasks) {
+      tSeq++;
+      const tKey = `${key}-${tSeq}`;
+      run('UPDATE tasks SET task_number = ?, task_key = ? WHERE id = ?', [tSeq, tKey, t.id]);
+    }
+    
+    run('UPDATE boards SET project_key = ?, task_sequence = ? WHERE id = ?', [key, tSeq, b.id]);
+  }
 }
 
 export function saveDb() {

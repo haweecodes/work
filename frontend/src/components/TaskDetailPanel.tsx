@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -23,6 +23,7 @@ const PRIORITY_STYLES: Record<string, PriorityStyle> = {
 
 export default function TaskDetailPanel() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const setActiveThreadId = useUIStore(s => s.setActiveThreadId);
   const user = useAuthStore(s => s.user);
   const { members } = useWorkspaceStore();
@@ -44,6 +45,8 @@ export default function TaskDetailPanel() {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [creatingSubtask, setCreatingSubtask] = useState(false);
 
+  const [copiedKey, setCopiedKey] = useState(false);
+
   // Re-fetch the full task (with joined message data) whenever the selected task changes.
   // The task objects in the store may be partial (opened from a message chip), so we always
   // pull fresh data from the dedicated endpoint before rendering the form.
@@ -51,6 +54,8 @@ export default function TaskDetailPanel() {
     if (!selectedTask) return;
     setLoading(true);
     setForm(null); // clear stale form while loading
+    // reset copied state on task change
+    setCopiedKey(false);
     client.get(`/api/tasks/task/${selectedTask.id}`)
       .then(({ data }) => {
         const merged = { ...selectedTask, ...data };
@@ -141,6 +146,14 @@ export default function TaskDetailPanel() {
     }) : null);
   };
 
+  const handleCopyKey = () => {
+    if (selectedTask?.task_key) {
+      navigator.clipboard.writeText(window.location.origin + '/t/' + selectedTask.task_key);
+      setCopiedKey(true);
+      setTimeout(() => setCopiedKey(false), 2000);
+    }
+  };
+
   if (!selectedTask) return null;
   if (loading || !form) return (
     <div className="h-full flex flex-col animate-pulse p-5 space-y-4">
@@ -160,8 +173,34 @@ export default function TaskDetailPanel() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Task Details</span>
-        <button onClick={() => setSelectedTask(null)}
+        <div className="flex items-center gap-2 relative">
+          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Task Details</span>
+          {selectedTask.task_key && (
+            <>
+              <span className="text-gray-300">•</span>
+              <button 
+                onClick={handleCopyKey}
+                title="Copy task ID"
+                className="text-xs font-bold text-primary-600 bg-primary-50 px-2 py-0.5 rounded uppercase tracking-wider hover:bg-primary-100 transition-colors flex items-center gap-1 group/copy"
+              >
+                {selectedTask.task_key}
+                {copiedKey ? (
+                  <svg className="w-3 h-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+        <button onClick={() => {
+            setSelectedTask(null);
+            setSearchParams({}, { replace: true });
+          }}
           className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

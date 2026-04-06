@@ -16,6 +16,7 @@ const ChannelView     = lazy(() => import('./pages/ChannelView'));
 const DMView          = lazy(() => import('./pages/DMView'));
 const BoardView       = lazy(() => import('./pages/BoardView'));
 const JoinWorkspace   = lazy(() => import('./pages/JoinWorkspace'));
+const TaskRedirect    = lazy(() => import('./pages/TaskRedirect'));
 
 // ── Fallbacks ─────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,13 @@ export default function App() {
               <Suspense fallback={<PageLoader />}><WorkspaceCreate /></Suspense>
             </PrivateRoute>
           } />
+          
+          {/* Deep link short router */}
+          <Route path="/t/:taskKey" element={
+            <PrivateRoute>
+              <Suspense fallback={<PageLoader />}><TaskRedirect /></Suspense>
+            </PrivateRoute>
+          }/>
 
           {/* App shell */}
           <Route path="/" element={
