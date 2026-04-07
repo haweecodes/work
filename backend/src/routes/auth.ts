@@ -15,7 +15,7 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 
   try {
-    const existingUser = get('SELECT id FROM users WHERE email = ?', [email]);
+    const existingUser = await get('SELECT id FROM users WHERE email = ?', [email]);
     if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
     }
@@ -24,7 +24,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const hash = await bcrypt.hash(password, 10);
     const avatar_url = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
 
-    run(
+    await run(
       'INSERT INTO users (id, name, email, password_hash, avatar_url) VALUES (?, ?, ?, ?, ?)',
       [id, name, email, hash, avatar_url]
     );
@@ -44,7 +44,7 @@ router.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   try {
-    const user = get('SELECT * FROM users WHERE email = ?', [email]);
+    const user = await get('SELECT * FROM users WHERE email = ?', [email]);
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }

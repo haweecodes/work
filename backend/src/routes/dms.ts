@@ -11,8 +11,8 @@ export const setIo = (socketIo: Server) => { io = socketIo; };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getReactionsForMessage(messageId: string) {
-  const rows = all<{ emoji: string; user_id: string }>(
+async function getReactionsForMessage(messageId: string) {
+  const rows = await all<{ emoji: string; user_id: string }>(
     `SELECT emoji, user_id FROM message_reactions WHERE message_id = ? ORDER BY created_at ASC`,
     [messageId]
   );
@@ -24,9 +24,9 @@ function getReactionsForMessage(messageId: string) {
   return Object.entries(map).map(([emoji, users]) => ({ emoji, count: users.length, users }));
 }
 
-function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
+async function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
   if (!sharedMessageId) return null;
-  const sm = get<any>(
+  const sm = await get<any>(
     `SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
             u.name as sender_name, u.avatar_url as sender_avatar,
             c.name as channel_name
@@ -50,19 +50,20 @@ function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
   };
 }
 
-function enrichDmMessage(m: any) {
-  const reactions = getReactionsForMessage(m.id);
-  const replyCount = m.reply_count ??
-    (get<{ cnt: number }>(`SELECT COUNT(id) as cnt FROM messages WHERE parent_message_id = ?`, [m.id])?.cnt ?? 0);
-  const shared_message = getSharedMessagePreview(m.shared_message_id);
+async function enrichDmMessage(m: any) {
+  const reactions = await getReactionsForMessage(m.id);
+  const replyCount = m.reply_count != null
+    ? Number(m.reply_count)
+    : (Number((await get<{ cnt: number }>(`SELECT COUNT(id)::int as cnt FROM messages WHERE parent_message_id = ?`, [m.id]))?.cnt) ?? 0);
+  const shared_message = await getSharedMessagePreview(m.shared_message_id);
 
   let linked_task = null;
   if (m.task_id) {
-    const assignees = all(
+    const assignees = await all(
       `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
       [m.task_id]
     );
-    const col = get('SELECT title FROM columns WHERE id = ?', [m.task_column_id]);
+    const col = await get('SELECT title FROM columns WHERE id = ?', [m.task_column_id]);
     linked_task = {
       id: m.task_id, title: m.task_title, priority: m.task_priority,
       task_key: m.task_key, task_number: m.task_number,
@@ -90,30 +91,30 @@ function enrichDmMessage(m: any) {
 
 // ── DM Threads ────────────────────────────────────────────────────────────────
 
-router.get('/threads/:workspaceId', authMiddleware, (req: Request, res: Response) => {
-  const threads = all(
+router.get('/threads/:workspaceId', authMiddleware, async (req: Request, res: Response) => {
+  const threads = await all(
     `SELECT dt.id, dt.workspace_id, dt.created_at FROM dm_threads dt
      JOIN dm_participants dp ON dt.id = dp.thread_id
      WHERE dp.user_id = ? AND dt.workspace_id = ?`,
     [req.user?.id, req.params.workspaceId]
   );
 
-  const enriched = threads.map(t => {
-    const participants = all(
+  const enriched = await Promise.all(threads.map(async t => {
+    const participants = await all(
       `SELECT u.id, u.name, u.avatar_url FROM dm_participants dp
        JOIN users u ON u.id = dp.user_id WHERE dp.thread_id = ?`,
       [t.id]
     );
-    const lastMsg = get(
+    const lastMsg = await get(
       `SELECT content, created_at FROM messages WHERE dm_thread_id = ? AND parent_message_id IS NULL ORDER BY created_at DESC LIMIT 1`,
       [t.id]
     );
     return { ...t, participants, last_message: lastMsg };
-  });
+  }));
   res.json(enriched);
 });
 
-router.post('/threads', authMiddleware, (req: Request, res: Response) => {
+router.post('/threads', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { workspace_id, other_user_id } = req.body;
     if (!workspace_id || !other_user_id) {
@@ -121,7 +122,7 @@ router.post('/threads', authMiddleware, (req: Request, res: Response) => {
     }
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const existing = get(
+    const existing = await get(
       `SELECT dt.id FROM dm_threads dt
        JOIN dm_participants dp1 ON dt.id = dp1.thread_id AND dp1.user_id = ?
        JOIN dm_participants dp2 ON dt.id = dp2.thread_id AND dp2.user_id = ?
@@ -130,7 +131,7 @@ router.post('/threads', authMiddleware, (req: Request, res: Response) => {
       [req.user.id, other_user_id, workspace_id]
     );
     if (existing) {
-      const participants = all(
+      const participants = await all(
         `SELECT u.id, u.name, u.avatar_url FROM dm_participants dp JOIN users u ON u.id = dp.user_id WHERE dp.thread_id = ?`,
         [existing.id]
       );
@@ -138,11 +139,11 @@ router.post('/threads', authMiddleware, (req: Request, res: Response) => {
     }
 
     const id = uuidv4();
-    run('INSERT INTO dm_threads (id, workspace_id) VALUES (?, ?)', [id, workspace_id]);
-    run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [id, req.user.id]);
-    run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [id, other_user_id]);
+    await run('INSERT INTO dm_threads (id, workspace_id) VALUES (?, ?)', [id, workspace_id]);
+    await run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [id, req.user.id]);
+    await run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [id, other_user_id]);
 
-    const participants = all(
+    const participants = await all(
       `SELECT u.id, u.name, u.avatar_url FROM dm_participants dp JOIN users u ON u.id = dp.user_id WHERE dp.thread_id = ?`,
       [id]
     );
@@ -154,36 +155,33 @@ router.post('/threads', authMiddleware, (req: Request, res: Response) => {
 
 // ── DM Messages ───────────────────────────────────────────────────────────────
 
-router.get('/:threadId', authMiddleware, (req: Request, res: Response) => {
-  const messages = all(
+router.get('/:threadId', authMiddleware, async (req: Request, res: Response) => {
+  const messages = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
-            (SELECT COUNT(id) FROM messages WHERE parent_message_id = m.id) as reply_count
+            (SELECT COUNT(id)::int FROM messages WHERE parent_message_id = m.id) as reply_count
      FROM messages m LEFT JOIN users u ON u.id = m.sender_id
      LEFT JOIN tasks t ON t.id = m.linked_task_id
      WHERE m.dm_thread_id = ? AND m.parent_message_id IS NULL
      ORDER BY m.created_at ASC LIMIT 200`,
     [req.params.threadId]
   );
-  res.json(messages.map(enrichDmMessage));
+  res.json(await Promise.all(messages.map(enrichDmMessage)));
 });
 
-router.post('/:threadId', authMiddleware, (req: Request, res: Response) => {
+router.post('/:threadId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { content, linked_task_id, parent_message_id } = req.body;
     if (!content) return res.status(400).json({ error: 'content required' });
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // Enforce max 2-level nesting: allow reply→reply but not reply→reply→reply
     if (parent_message_id) {
-      const parentMsg = get<{ parent_message_id: string | null }>(
-        'SELECT parent_message_id FROM messages WHERE id = ?',
-        [parent_message_id]
+      const parentMsg = await get<{ parent_message_id: string | null }>(
+        'SELECT parent_message_id FROM messages WHERE id = ?', [parent_message_id]
       );
       if (parentMsg?.parent_message_id) {
-        const grandparentMsg = get<{ parent_message_id: string | null }>(
-          'SELECT parent_message_id FROM messages WHERE id = ?',
-          [parentMsg.parent_message_id]
+        const grandparentMsg = await get<{ parent_message_id: string | null }>(
+          'SELECT parent_message_id FROM messages WHERE id = ?', [parentMsg.parent_message_id]
         );
         if (grandparentMsg?.parent_message_id) {
           return res.status(400).json({ error: 'Cannot nest more than 2 levels deep in a thread' });
@@ -192,70 +190,49 @@ router.post('/:threadId', authMiddleware, (req: Request, res: Response) => {
     }
 
     const id = uuidv4();
-    run(
+    await run(
       'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
       [id, req.params.threadId, req.user.id, content, linked_task_id || null, parent_message_id || null]
     );
 
-    const sender = get('SELECT id, name, avatar_url FROM users WHERE id = ?', [req.user.id]);
+    const sender = await get('SELECT id, name, avatar_url FROM users WHERE id = ?', [req.user.id]);
     const message = {
-      id,
-      dm_thread_id: req.params.threadId,
-      sender_id: req.user.id,
-      content,
-      linked_task_id: linked_task_id || null,
-      created_at: new Date().toISOString(),
-      sender,
-      parent_message_id: parent_message_id || null,
-      reply_count: 0,
-      reactions: [],
-      shared_message_id: null,
-      shared_message: null,
+      id, dm_thread_id: req.params.threadId, sender_id: req.user.id, content,
+      linked_task_id: linked_task_id || null, created_at: new Date().toISOString(), sender,
+      parent_message_id: parent_message_id || null, reply_count: 0,
+      reactions: [], shared_message_id: null, shared_message: null,
     };
 
-    const participants = all(
-      'SELECT user_id FROM dm_participants WHERE thread_id = ?',
-      [req.params.threadId]
-    );
+    const participants = await all('SELECT user_id FROM dm_participants WHERE thread_id = ?', [req.params.threadId]);
 
     if (io) {
       if (parent_message_id) {
-        // Walk up to find the root of the thread
-        const parentRow = get<{ parent_message_id: string | null }>(
-          'SELECT parent_message_id FROM messages WHERE id = ?',
-          [parent_message_id]
+        const parentRow = await get<{ parent_message_id: string | null }>(
+          'SELECT parent_message_id FROM messages WHERE id = ?', [parent_message_id]
         );
         const rootId = parentRow?.parent_message_id ?? parent_message_id;
-
-        const threadParticipants = all(
-          `SELECT DISTINCT sender_id FROM messages WHERE id = ? OR parent_message_id = ?`,
-          [rootId, rootId]
+        const threadParticipants = await all(
+          `SELECT DISTINCT sender_id FROM messages WHERE id = ? OR parent_message_id = ?`, [rootId, rootId]
         );
         const notified = new Set<string>();
-        threadParticipants.forEach(p => {
-          io!.to(`user:${p.sender_id}`).emit('new_dm', message);
-          notified.add(p.sender_id);
-        });
-        if (!notified.has(req.user!.id)) {
-          io.to(`user:${req.user.id}`).emit('new_dm', message);
-        }
+        threadParticipants.forEach(p => { io!.to(`user:${p.sender_id}`).emit('new_dm', message); notified.add(p.sender_id); });
+        if (!notified.has(req.user!.id)) io.to(`user:${req.user.id}`).emit('new_dm', message);
       } else {
         io.to(`dm:${req.params.threadId}`).emit('new_dm', message);
       }
     }
 
-    // DM notifications for non-thread messages
     if (!parent_message_id) {
-      participants.forEach(p => {
+      for (const p of participants) {
         if (p.user_id !== req.user?.id) {
           const notifId = uuidv4();
-          run(
+          await run(
             'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
             [notifId, p.user_id, 'dm', id, 'message', `${req.user?.name || 'A user'}: "${content.slice(0, 80)}"`]
           );
           if (io) io.to(`user:${p.user_id}`).emit('notification', { id: notifId, type: 'dm' });
         }
-      });
+      }
     }
 
     res.status(201).json(message);
@@ -266,13 +243,12 @@ router.post('/:threadId', authMiddleware, (req: Request, res: Response) => {
 
 // ── DM Thread replies ─────────────────────────────────────────────────────────
 
-router.get('/:threadId/thread/:messageId', authMiddleware, (req: Request, res: Response) => {
-  const depth1 = all(
+router.get('/:threadId/thread/:messageId', authMiddleware, async (req: Request, res: Response) => {
+  const depth1 = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
-            (SELECT COUNT(id) FROM messages WHERE parent_message_id = m.id) as reply_count
-     FROM messages m
-     LEFT JOIN users u ON u.id = m.sender_id
+            (SELECT COUNT(id)::int FROM messages WHERE parent_message_id = m.id) as reply_count
+     FROM messages m LEFT JOIN users u ON u.id = m.sender_id
      LEFT JOIN tasks t ON t.id = m.linked_task_id
      WHERE m.dm_thread_id = ? AND m.parent_message_id = ?
      ORDER BY m.created_at ASC`,
@@ -283,12 +259,11 @@ router.get('/:threadId/thread/:messageId', authMiddleware, (req: Request, res: R
   let depth2: any[] = [];
   if (depth1Ids.length > 0) {
     const placeholders = depth1Ids.map(() => '?').join(',');
-    depth2 = all(
+    depth2 = await all(
       `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
               t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
               0 as reply_count
-       FROM messages m
-       LEFT JOIN users u ON u.id = m.sender_id
+       FROM messages m LEFT JOIN users u ON u.id = m.sender_id
        LEFT JOIN tasks t ON t.id = m.linked_task_id
        WHERE m.dm_thread_id = ? AND m.parent_message_id IN (${placeholders})
        ORDER BY m.created_at ASC`,
@@ -299,8 +274,7 @@ router.get('/:threadId/thread/:messageId', authMiddleware, (req: Request, res: R
   const all_msgs = [...depth1, ...depth2].sort((a: any, b: any) =>
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
-
-  res.json(all_msgs.map(enrichDmMessage));
+  res.json(await Promise.all(all_msgs.map(enrichDmMessage)));
 });
 
 export default router;
