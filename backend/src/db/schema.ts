@@ -57,7 +57,7 @@ export const boards = pgTable('boards', {
   id:            text('id').primaryKey(),
   workspace_id:  text('workspace_id').notNull().references(() => workspaces.id),
   name:          text('name').notNull(),
-  project_key:   text('project_key'),
+  project_key:   text('project_key').notNull(),
   task_sequence: integer('task_sequence').default(0),
   created_at:    timestamp('created_at').defaultNow(),
 });

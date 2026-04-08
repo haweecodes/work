@@ -42,15 +42,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     await run('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)',
       [channelId, req.user.id]);
 
-    const boardId = uuidv4();
-    await run('INSERT INTO boards (id, workspace_id, name) VALUES (?, ?, ?)',
-      [boardId, id, 'Project Board']);
 
-    const defaultCols = ['To Do', 'In Progress', 'In Review', 'Done'];
-    for (let i = 0; i < defaultCols.length; i++) {
-      await run('INSERT INTO columns (id, board_id, title, position) VALUES (?, ?, ?, ?)',
-        [uuidv4(), boardId, defaultCols[i], i]);
-    }
 
     const workspace = await get('SELECT * FROM workspaces WHERE id = ?', [id]);
     res.status(201).json(workspace);
