@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { requireChannelMember } from '../middleware/workspace';
 
 const router = express.Router();
 let io: Server | undefined;
@@ -180,7 +181,7 @@ router.patch('/:channelId/archive', authMiddleware, async (req: Request, res: Re
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
-router.get('/messages/:channelId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/messages/:channelId', authMiddleware, requireChannelMember('channelId'), async (req: Request, res: Response) => {
   const messages = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
@@ -204,6 +205,13 @@ router.post('/messages', authMiddleware, async (req: Request, res: Response) => 
       return res.status(400).json({ error: 'channel_id and content required' });
     }
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Guard: sender must be a member of the target channel
+    const isMember = await get(
+      'SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?',
+      [channel_id, req.user.id]
+    );
+    if (!isMember) return res.status(403).json({ error: 'You are not a member of this channel' });
 
     // Enforce max 2-level nesting
     if (parent_message_id) {
@@ -289,7 +297,7 @@ router.post('/messages', authMiddleware, async (req: Request, res: Response) => 
 
 // ── Thread replies ────────────────────────────────────────────────────────────
 
-router.get('/messages/:channelId/thread/:messageId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/messages/:channelId/thread/:messageId', authMiddleware, requireChannelMember('channelId'), async (req: Request, res: Response) => {
   const depth1 = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,

@@ -8,7 +8,6 @@ interface MessageActionBarProps {
   msg: Message;
   onReply?: (msg: Message) => void;
   onShare?: (msg: Message) => void;
-  onCreateTask: (msg: Message) => void;
   onReactionToggle?: (messageId: string, reactions: Reaction[]) => void;
   depth?: number;
   /** Current effective reactions (kept in sync by parent) */
@@ -22,7 +21,6 @@ export default function MessageActionBar({
   msg,
   onReply,
   onShare,
-  onCreateTask,
   onReactionToggle,
   depth = 0,
   reactions,
@@ -41,15 +39,15 @@ export default function MessageActionBar({
     const alreadyReacted = reactions.find(r => r.emoji === emoji)?.users.includes(user.id);
     const optimistic: Reaction[] = alreadyReacted
       ? reactions
-          .map(r => r.emoji === emoji ? { ...r, count: r.count - 1, users: r.users.filter(u => u !== user.id) } : r)
-          .filter(r => r.count > 0)
+        .map(r => r.emoji === emoji ? { ...r, count: r.count - 1, users: r.users.filter(u => u !== user.id) } : r)
+        .filter(r => r.count > 0)
       : (() => {
-          const existing = reactions.find(r => r.emoji === emoji);
-          if (existing) {
-            return reactions.map(r => r.emoji === emoji ? { ...r, count: r.count + 1, users: [...r.users, user.id] } : r);
-          }
-          return [...reactions, { emoji, count: 1, users: [user.id] }];
-        })();
+        const existing = reactions.find(r => r.emoji === emoji);
+        if (existing) {
+          return reactions.map(r => r.emoji === emoji ? { ...r, count: r.count + 1, users: [...r.users, user.id] } : r);
+        }
+        return [...reactions, { emoji, count: 1, users: [user.id] }];
+      })();
 
     onReactionsChange(optimistic);
     onReactionToggle?.(msg.id, optimistic);
@@ -131,19 +129,7 @@ export default function MessageActionBar({
         </button>
       )}
 
-      {/* Divider */}
-      <div className="w-px h-3.5 bg-gray-200 mx-0.5" />
 
-      {/* Convert to task */}
-      <button
-        onClick={() => onCreateTask(msg)}
-        className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
-        title="Convert to task"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-        </svg>
-      </button>
     </div>
   );
 }

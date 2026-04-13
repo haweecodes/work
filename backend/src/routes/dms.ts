@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { requireDmParticipant } from '../middleware/workspace';
 
 const router = express.Router();
 let io: Server | undefined;
@@ -155,7 +156,7 @@ router.post('/threads', authMiddleware, async (req: Request, res: Response) => {
 
 // ── DM Messages ───────────────────────────────────────────────────────────────
 
-router.get('/:threadId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:threadId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   const messages = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
@@ -169,7 +170,7 @@ router.get('/:threadId', authMiddleware, async (req: Request, res: Response) => 
   res.json(await Promise.all(messages.map(enrichDmMessage)));
 });
 
-router.post('/:threadId', authMiddleware, async (req: Request, res: Response) => {
+router.post('/:threadId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   try {
     const { content, linked_task_id, parent_message_id } = req.body;
     if (!content) return res.status(400).json({ error: 'content required' });
@@ -243,7 +244,7 @@ router.post('/:threadId', authMiddleware, async (req: Request, res: Response) =>
 
 // ── DM Thread replies ─────────────────────────────────────────────────────────
 
-router.get('/:threadId/thread/:messageId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:threadId/thread/:messageId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   const depth1 = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,

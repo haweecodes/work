@@ -2,12 +2,17 @@ import { create } from 'zustand';
 import client from '../api/client';
 import type { Workspace, Channel, DmThread, Member } from '../types';
 
+
 interface WorkspaceState {
   workspaces: Workspace[];
   currentWorkspace: Workspace | null;
   channels: Channel[];
   dmThreads: DmThread[];
   members: Member[];
+  /** The current user's role in the active workspace ('admin' | 'member' | null) */
+  role: 'admin' | 'member' | null;
+  /** True if the user is admin OR the workspace owner */
+  isAdmin: (userId: string) => boolean;
   isInitialized: boolean;
   setCurrentWorkspace: (workspace: Workspace) => Promise<void>;
   fetchWorkspaces: () => Promise<Workspace[]>;
@@ -27,6 +32,12 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   channels: [],
   dmThreads: [],
   members: [],
+  role: null,
+  isAdmin: (userId: string) => {
+    const s = get();
+    return s.role === 'admin' || s.currentWorkspace?.owner_id === userId;
+  },
+
   isInitialized: false,
 
   setCurrentWorkspace: async (workspace: Workspace) => {
@@ -52,6 +63,9 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Clear notifications (will be re-fetched by AppLayout)
     useNotifStore.setState({ notifications: [] });
 
+    // Reset role until the new workspace's members are loaded
+    set({ role: null });
+
     // Switch workspace and load its data
     localStorage.setItem('fw_workspace', JSON.stringify(workspace));
     set({ currentWorkspace: workspace, channels: [], dmThreads: [], members: [] });
@@ -75,6 +89,13 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   fetchMembers: async (workspaceId: string) => {
     const { data } = await client.get<Member[]>(`/api/workspaces/${workspaceId}/members`);
     set({ members: data });
+    // Derive the current user's role in this workspace
+    const { default: useAuthStore } = await import('./authStore');
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) {
+      const me = data.find(m => m.id === userId);
+      set({ role: (me?.role ?? 'member') as 'admin' | 'member' });
+    }
   },
 
   fetchDmThreads: async (workspaceId: string) => {

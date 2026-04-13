@@ -2,10 +2,11 @@ import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { all, get, run } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { requireWorkspaceMember } from '../middleware/workspace';
 
 const router = express.Router();
 
-router.get('/:workspaceId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:workspaceId', authMiddleware, requireWorkspaceMember('workspaceId'), async (req: Request, res: Response) => {
   const boards = await all(
     'SELECT * FROM boards WHERE workspace_id = ? ORDER BY created_at ASC',
     [req.params.workspaceId]
@@ -52,6 +53,18 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 });
 
 router.get('/:boardId/columns', authMiddleware, async (req: Request, res: Response) => {
+  // Guard: user must be a member of the board's workspace
+  const board = await get<{ workspace_id: string }>(
+    'SELECT workspace_id FROM boards WHERE id = ?',
+    [req.params.boardId]
+  );
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  const isMember = await get(
+    'SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
+    [board.workspace_id, req.user?.id]
+  );
+  if (!isMember) return res.status(403).json({ error: 'You are not a member of this workspace' });
+
   const columns = await all(
     'SELECT * FROM columns WHERE board_id = ? ORDER BY position ASC',
     [req.params.boardId]

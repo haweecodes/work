@@ -30,7 +30,10 @@ export interface DmThread {
   participants?: User[];
 }
 
-export interface Member extends User { }
+export interface Member extends User {
+  role?: 'admin' | 'member';
+}
+
 
 export interface Board {
   id: string;

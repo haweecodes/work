@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { requireWorkspaceMember } from '../middleware/workspace';
 
 const router = express.Router();
 let io: Server | undefined;
@@ -52,7 +53,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id/members', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:id/members', authMiddleware, requireWorkspaceMember('id'), async (req: Request, res: Response) => {
   const members = await all(
     `SELECT u.id, u.name, u.email, u.avatar_url, wm.role
      FROM workspace_members wm

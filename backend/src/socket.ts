@@ -30,6 +30,10 @@ export function initSocket(server: any, allowedOrigins: string[]) {
       socket.join(`dm:${threadId}`);
     });
 
+    socket.on('leave_dm', (threadId: string) => {
+      socket.leave(`dm:${threadId}`);
+    });
+
     socket.on('join_board', (boardId: string) => {
       socket.join(`board:${boardId}`);
     });

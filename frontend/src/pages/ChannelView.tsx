@@ -4,6 +4,7 @@ import client from '../api/client';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import useBoardStore from '../store/boardStore';
+
 import useUIStore from '../store/uiStore';
 import SocketContext from '../context/SocketContext';
 import MessageBubble from '../components/MessageBubble';
@@ -178,7 +179,8 @@ export default function ChannelView() {
     }
   };
 
-  const canArchive = user && !channel?.is_archived && (channel?.created_by === user.id || currentWorkspace?.owner_id === user.id);
+  const canArchive = user && !channel?.is_archived && (channel?.created_by === user.id || useWorkspaceStore.getState().isAdmin(user.id));
+
 
   return (
     <div className="flex h-full bg-white relative">

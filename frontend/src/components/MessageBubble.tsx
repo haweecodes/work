@@ -163,7 +163,6 @@ export default function MessageBubble({
             msg={msg}
             onReply={onReply}
             onShare={onShare}
-            onCreateTask={onCreateTask}
             onReactionToggle={onReactionToggle}
             depth={depth}
             reactions={effectiveReactions}
@@ -230,6 +229,18 @@ export default function MessageBubble({
           </p>
         )}
 
+
+        {/* Create task — persistent, always-visible pill */}
+        <button
+          onClick={() => onCreateTask(msg)}
+          title="Create task from this message"
+          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-gray-200 text-[11px] font-medium text-gray-400 hover:border-primary-300 hover:text-primary-600 hover:bg-primary-50 transition-all duration-150 group/task"
+        >
+          <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          Create task
+        </button>
 
         {/* Reaction pills — clicking calls the same toggle as the action bar */}
         {effectiveReactions.length > 0 && (

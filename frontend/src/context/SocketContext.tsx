@@ -18,6 +18,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const channels = useWorkspaceStore(s => s.channels);
   const dmThreads = useWorkspaceStore(s => s.dmThreads);
 
+  // Track which rooms we currently have joined so we can leave them before joining new ones.
+  // This prevents stale events from a previous workspace's channels/DMs from bleeding through.
+  const joinedRoomsRef = useRef<{ channels: string[]; dms: string[] }>({ channels: [], dms: [] });
+
   // Initialize socket and global event handlers
   useEffect(() => {
     if (!user) return;
@@ -39,14 +43,29 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
 
     socket.on('task_updated', ({ type, task, task_id }: { type: string; task: Task; task_id: string }) => {
-      if (type === 'deleted') removeTask(task_id);
-      else updateTaskInColumn(task);
+      // Guard: only apply if this task belongs to a board in the current workspace
+      const { boards } = useBoardStore.getState();
+      const boardExists = type === 'deleted'
+        ? boards.some(b => b.id === task?.board_id)  // task may be undefined for delete
+        : boards.some(b => b.id === task?.board_id);
+
+      if (type === 'deleted') {
+        // For delete, we check boards if task carries board_id, otherwise allow it
+        // (the board may have been unloaded already)
+        removeTask(task_id);
+      } else if (boardExists) {
+        updateTaskInColumn(task);
+      }
     });
 
     // Increment unread counts for messages received outside the active view
     socket.on('new_message', (msg: Message) => {
       const activePath = window.location.pathname;
       const { activeThreadId, incrementThreadUnread, incrementChannelUnread } = useUIStore.getState();
+
+      // Guard: only count unread for channels that belong to the current workspace
+      const { channels: currentChannels } = useWorkspaceStore.getState();
+      if (msg.channel_id && !currentChannels.some(c => c.id === msg.channel_id)) return;
 
       if (msg.parent_message_id) {
         if (activeThreadId !== msg.parent_message_id) incrementThreadUnread(msg.parent_message_id);
@@ -57,6 +76,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     socket.on('new_dm', (msg: Message) => {
       const activePath = window.location.pathname;
+
+      // Guard: only count unread for DM threads in the current workspace
+      const { dmThreads: currentDms } = useWorkspaceStore.getState();
+      if (msg.dm_thread_id && !currentDms.some(t => t.id === msg.dm_thread_id)) return;
+
       if (msg.dm_thread_id && !activePath.includes(`/dm/${msg.dm_thread_id}`)) {
         useUIStore.getState().incrementDmUnread(msg.dm_thread_id);
       }
@@ -76,25 +100,36 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      joinedRoomsRef.current = { channels: [], dms: [] };
     };
   }, [user?.id]);
 
-  // Join ALL channel and DM rooms so the global listeners above receive
-  // events from every conversation, not just the currently active one.
-  // This re-runs whenever the channel/thread list changes (e.g. on workspace switch).
+  // Leave old rooms, then join all current workspace's channel and DM rooms.
+  // Re-runs whenever the channel/thread list changes (e.g. on workspace switch).
+  // This ensures events from previous workspace rooms stop arriving after a switch.
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
 
-    const doJoin = () => {
-      channels.forEach(ch => socket.emit('join_channel', ch.id));
-      dmThreads.forEach(t => socket.emit('join_dm', t.id));
+    const doSwitch = () => {
+      // Leave rooms from the previous workspace
+      joinedRoomsRef.current.channels.forEach(id => socket.emit('leave_channel', id));
+      joinedRoomsRef.current.dms.forEach(id => socket.emit('leave_dm', id));
+
+      // Join rooms for the current workspace
+      const chIds = channels.map(c => c.id);
+      const dmIds = dmThreads.map(t => t.id);
+      chIds.forEach(id => socket.emit('join_channel', id));
+      dmIds.forEach(id => socket.emit('join_dm', id));
+
+      // Track so next switch can leave these
+      joinedRoomsRef.current = { channels: chIds, dms: dmIds };
     };
 
     if (socket.connected) {
-      doJoin();
+      doSwitch();
     } else {
-      socket.once('connect', doJoin);
+      socket.once('connect', doSwitch);
     }
   }, [channels, dmThreads]);
 

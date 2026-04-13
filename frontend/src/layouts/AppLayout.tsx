@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import useNotificationStore from '../store/notificationStore';
@@ -21,6 +21,15 @@ export default function AppLayout() {
   const selectedTask = useBoardStore(s => s.selectedTask);
   const { showInvite, closeInvite, showCreateBoard, closeCreateBoard } = useUIStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  // Clear the task detail drawer whenever the user navigates to a different route.
+  // Without this, selectedTask persists in the global store and the drawer lingers
+  // (and flickers) across channel/DM/board page transitions.
+  useEffect(() => {
+    const { setSelectedTask } = useBoardStore.getState();
+    setSelectedTask(null);
+  }, [location.pathname]);
 
   useEffect(() => {
     (async () => {
@@ -39,6 +48,7 @@ export default function AppLayout() {
         await setCurrentWorkspace(ws);
         await fetchBoards(ws.id);
       }
+
       
       useWorkspaceStore.setState({ isInitialized: true });
     })();
