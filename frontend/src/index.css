@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -69,6 +71,13 @@
   .badge-priority-medium { @apply text-amber-700 bg-amber-50 border border-amber-200; }
   .badge-priority-high   { @apply text-orange-700 bg-orange-50 border border-orange-200; }
   .badge-priority-critical { @apply text-red-700 bg-red-50 border border-red-200; }
+
+  /* DM Sans utility */
+  .font-dm { font-family: 'DM Sans', system-ui, sans-serif; }
+
+  /* Dark sidebar scrollbar */
+  .font-dm ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12) !important; }
+  .font-dm ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22) !important; }
 }
 
 @keyframes fadeInScale {

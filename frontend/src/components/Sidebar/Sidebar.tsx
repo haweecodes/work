@@ -8,42 +8,194 @@ import NotificationPanel from '../NotificationPanel';
 import client from '../../api/client';
 import type { Workspace, Channel, DmThread } from '../../types';
 
+/* ─── tiny helpers ───────────────────────────────────────────────────── */
+
 function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span className="ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
+    <span
+      className="ml-auto flex-shrink-0 min-w-[16px] h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1"
+      style={{ background: '#7C3AED' }}
+    >
       {count > 99 ? '99+' : count}
     </span>
   );
 }
 
-function NavItem({ to, icon, label, title, unread = 0 }: { to: string, icon: React.ReactNode, label: string, title?: string, unread?: number }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <NavLink to={to}
+    <span
+      className="font-dm text-[10px] font-semibold uppercase tracking-widest select-none"
+      style={{ color: 'rgba(255,255,255,0.28)' }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function PlusBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="p-0.5 rounded transition-colors"
+      style={{ color: 'rgba(255,255,255,0.3)' }}
+      onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.7)')}
+      onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
+    >
+      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+      </svg>
+    </button>
+  );
+}
+
+/* ─── nav item ───────────────────────────────────────────────────────── */
+
+interface NavItemProps {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  title?: string;
+  unread?: number;
+}
+
+function NavItem({ to, icon, label, title, unread = 0 }: NavItemProps) {
+  return (
+    <NavLink
+      to={to}
       title={title}
-      className={({ isActive: active }) =>
-        `flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors duration-100 group
-         ${active ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`
-      }>
-      <span className="text-gray-400 group-hover:text-gray-600 flex-shrink-0">{icon}</span>
-      <span className={`truncate flex-1 ${unread > 0 ? 'font-semibold text-gray-900' : ''}`}>{label}</span>
-      <UnreadBadge count={unread} />
+      className={({ isActive }) =>
+        [
+          'group flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] font-dm transition-all duration-100',
+          isActive
+            ? 'font-medium'
+            : 'hover:bg-[rgba(255,255,255,0.06)]',
+        ].join(' ')
+      }
+      style={({ isActive }) =>
+        isActive
+          ? { background: 'rgba(124,58,237,0.18)', color: '#a78bfa' }
+          : { color: 'rgba(255,255,255,0.65)' }
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            className="flex-shrink-0 flex items-center justify-center w-4"
+            style={{ color: isActive ? '#a78bfa' : 'rgba(255,255,255,0.35)' }}
+          >
+            {icon}
+          </span>
+          <span className={`truncate flex-1 ${unread > 0 ? 'font-semibold' : 'font-normal'}`}
+            style={{ color: unread > 0 && !isActive ? 'rgba(255,255,255,0.9)' : undefined }}
+          >
+            {label}
+          </span>
+          <UnreadBadge count={unread} />
+        </>
+      )}
     </NavLink>
   );
 }
 
+/* ─── icons ──────────────────────────────────────────────────────────── */
+
+const IconHash = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+  </svg>
+);
+const IconLock = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+  </svg>
+);
+const IconBoard = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
+  </svg>
+);
+const IconArchive = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+  </svg>
+);
+const IconChevron = () => (
+  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+  </svg>
+);
+const IconBell = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+  </svg>
+);
+const IconInvite = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+  </svg>
+);
+const IconSignOut = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+  </svg>
+);
+
+/* ─── bottom action button ───────────────────────────────────────────── */
+
+function FooterBtn({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="w-full flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] font-dm transition-colors duration-100"
+      style={{
+        background: hovered ? 'rgba(255,255,255,0.06)' : 'transparent',
+        color: hovered ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.5)',
+      }}
+    >
+      <span className="flex-shrink-0 w-4 flex items-center justify-center">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+/* ─── main component ─────────────────────────────────────────────────── */
+
 export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { workspaces, currentWorkspace, channels, dmThreads, members, setCurrentWorkspace, addChannel, fetchDmThreads } = useWorkspaceStore();
-  const { boards, fetchBoards, setCurrentBoard } = useBoardStore();
+  const {
+    workspaces, currentWorkspace, channels, dmThreads, members,
+    setCurrentWorkspace, addChannel, fetchDmThreads,
+  } = useWorkspaceStore();
+  const { boards, fetchBoards } = useBoardStore();
   const { openCreateBoard, openInvite, channelUnread, dmUnread } = useUIStore();
-  const [showNotif, setShowNotif] = useState(false);
+
+  const [showNotif, setShowNotif]         = useState(false);
   const [showWorkspaces, setShowWorkspaces] = useState(false);
   const [addingChannel, setAddingChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
-  const [isPrivate, setIsPrivate] = useState(false);
+  const [isPrivate, setIsPrivate]         = useState(false);
 
+  /* handlers */
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newChannelName.trim() || !currentWorkspace) return;
@@ -74,100 +226,161 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     if (!user || memberId === user.id || !currentWorkspace) return;
     const { data } = await client.post<DmThread>('/api/dms/threads', {
       workspace_id: currentWorkspace.id,
-      other_user_id: memberId
+      other_user_id: memberId,
     });
     await fetchDmThreads(currentWorkspace.id);
     navigate(`/dm/${data.id}`);
     onClose?.();
   };
 
+  /* ── render ─────────────────────────────────────────────────────────── */
   return (
-    <div className="w-64 h-full bg-white border-r border-gray-200 flex flex-col select-none">
-      <div className="relative px-4 py-3 border-b border-gray-100">
+    <div
+      className="w-60 h-full flex flex-col select-none font-dm"
+      style={{
+        background: '#111118',
+        borderRight: '1px solid rgba(255,255,255,0.08)',
+      }}
+    >
+      {/* ── Workspace header ── */}
+      <div
+        className="relative px-3 py-2.5"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+      >
         <button
           onClick={() => setShowWorkspaces(!showWorkspaces)}
-          className="w-full flex items-center gap-2.5 hover:bg-gray-50 rounded-lg p-1.5 -ml-1.5 transition-colors"
+          className="w-full flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors duration-100"
+          style={{ color: 'rgba(255,255,255,0.85)' }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         >
-          <div className="w-7 h-7 rounded-lg bg-primary-500 flex-shrink-0 flex items-center justify-center">
-            <span className="text-white font-bold text-xs">
-              {currentWorkspace?.name?.[0]?.toUpperCase() || 'F'}
-            </span>
+          {/* workspace avatar */}
+          <div
+            className="w-6 h-6 rounded-md flex-shrink-0 flex items-center justify-center text-white text-[11px] font-bold"
+            style={{ background: '#7C3AED' }}
+          >
+            {currentWorkspace?.name?.[0]?.toUpperCase() || 'F'}
           </div>
-          <span className="flex-1 text-left font-semibold text-sm text-gray-900 truncate">
+          <span className="flex-1 text-left text-[13px] font-semibold truncate">
             {currentWorkspace?.name || 'FlowWork'}
           </span>
-          <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>
+            <IconChevron />
+          </span>
         </button>
 
+        {/* workspace switcher dropdown */}
         {showWorkspaces && (
-          <div className="absolute left-4 right-4 top-14 z-50 bg-white rounded-xl shadow-dropdown border border-gray-100 p-1.5 animate-fade-in">
+          <div
+            className="absolute left-3 right-3 top-12 z-50 rounded-xl p-1.5 animate-fade-in"
+            style={{
+              background: '#1c1c26',
+              border: '1px solid rgba(255,255,255,0.10)',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+            }}
+          >
             {workspaces.map(ws => (
-              <button key={ws.id} onClick={() => handleSwitchWorkspace(ws)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors
-                  ${ws.id === currentWorkspace?.id ? 'bg-primary-50 text-primary-700' : 'hover:bg-gray-50 text-gray-700'}`}
+              <button
+                key={ws.id}
+                onClick={() => handleSwitchWorkspace(ws)}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-dm transition-colors"
+                style={
+                  ws.id === currentWorkspace?.id
+                    ? { background: 'rgba(124,58,237,0.2)', color: '#c4b5fd' }
+                    : { color: 'rgba(255,255,255,0.65)' }
+                }
+                onMouseEnter={e => {
+                  if (ws.id !== currentWorkspace?.id)
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                }}
+                onMouseLeave={e => {
+                  if (ws.id !== currentWorkspace?.id)
+                    e.currentTarget.style.background = 'transparent';
+                }}
               >
-                <div className="w-5 h-5 rounded-md bg-primary-500 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white text-xs font-bold">{ws.name[0].toUpperCase()}</span>
+                <div
+                  className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
+                  style={{ background: '#7C3AED' }}
+                >
+                  {ws.name[0].toUpperCase()}
                 </div>
                 <span className="truncate">{ws.name}</span>
               </button>
             ))}
-            <div className="border-t border-gray-100 mt-1 pt-1">
-              <button onClick={() => navigate('/workspace/create')}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New workspace
-              </button>
-            </div>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+            <button
+              onClick={() => navigate('/workspace/create')}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] font-dm transition-colors"
+              style={{ color: 'rgba(255,255,255,0.4)' }}
+              onMouseEnter={e => {
+                e.currentTarget.style.color = 'rgba(255,255,255,0.7)';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.color = 'rgba(255,255,255,0.4)';
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New workspace
+            </button>
           </div>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto py-2 px-2 space-y-4">
+      {/* ── Scrollable nav body ── */}
+      <div className="flex-1 overflow-y-auto py-2 px-2 space-y-3">
+
+        {/* Channels */}
         <section>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Channels</span>
-            <button onClick={() => setAddingChannel(true)}
-              className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+          <div className="flex items-center justify-between px-2 mb-0.5">
+            <SectionLabel>Channels</SectionLabel>
+            <PlusBtn onClick={() => setAddingChannel(true)} />
           </div>
+
           {addingChannel && (
-            <form onSubmit={handleAddChannel} className="px-2 mb-2 space-y-1.5">
-              <input autoFocus className="input text-xs py-1.5" placeholder="channel-name"
-                value={newChannelName} onChange={e => setNewChannelName(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+            <form onSubmit={handleAddChannel} className="px-1 mb-1.5 space-y-1">
+              <input
+                autoFocus
+                className="w-full px-2.5 py-1.5 rounded-md text-[12px] font-dm outline-none"
+                placeholder="channel-name"
+                style={{
+                  background: 'rgba(255,255,255,0.07)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  color: 'rgba(255,255,255,0.85)',
+                }}
+                value={newChannelName}
+                onChange={e => setNewChannelName(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
                 onBlur={() => { if (!newChannelName) { setAddingChannel(false); setIsPrivate(false); } }}
               />
               <button
                 type="button"
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => setIsPrivate(p => !p)}
-                className={`w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors
-                  ${isPrivate ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100'}`}
+                className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-dm transition-colors"
+                style={
+                  isPrivate
+                    ? { background: 'rgba(245,158,11,0.15)', color: 'rgb(251,191,36)', border: '1px solid rgba(245,158,11,0.25)' }
+                    : { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.1)' }
+                }
               >
                 {isPrivate ? (
-                  <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>Private — invite only</>
+                  <><IconLock />Private — invite only</>
                 ) : (
-                  <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" /></svg>Public — all members</>                )}
+                  <><IconHash />Public — all members</>
+                )}
               </button>
             </form>
           )}
-          <div className="space-y-0.5">
+
+          <div className="space-y-px">
             {channels.map(ch => (
-              <NavItem key={ch.id} to={`/channel/${ch.id}`}
-                icon={
-                  ch.is_archived
-                    ? <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                    : ch.is_private
-                      ? <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                      : <span className="text-sm font-light">#</span>
-                }
+              <NavItem
+                key={ch.id}
+                to={`/channel/${ch.id}`}
+                icon={ch.is_archived ? <IconArchive /> : ch.is_private ? <IconLock /> : <IconHash />}
                 label={ch.name}
                 unread={channelUnread[ch.id] || 0}
               />
@@ -175,66 +388,110 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           </div>
         </section>
 
+        {/* Direct Messages */}
         <section>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Direct Messages</span>
+          <div className="flex items-center justify-between px-2 mb-0.5">
+            <SectionLabel>Direct Messages</SectionLabel>
           </div>
-          <div className="space-y-0.5">
+
+          <div className="space-y-px">
             {members.filter(m => m.id !== user?.id).map(m => {
-              const thread = dmThreads.find(t => t.participants?.some(p => p.id === m.id) && t.participants?.some(p => p.id === user?.id));
-              const labelContent = (
-                <div className="flex flex-col min-w-0">
-                  <span className="truncate leading-tight text-sm">{m.name}</span>
-                  {m.email && <span className="truncate text-[10px] text-gray-400 font-normal leading-tight">{m.email}</span>}
-                </div>
+              const thread = dmThreads.find(
+                t =>
+                  t.participants?.some(p => p.id === m.id) &&
+                  t.participants?.some(p => p.id === user?.id),
               );
-              
-              return thread ? (
-                <NavLink key={thread.id} to={`/dm/${thread.id}`}
-                  title={m.email}
-                  className={({ isActive: active }) =>
-                    `flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors duration-100 group
-                     ${active ? 'bg-primary-100 text-primary-700' : 'text-gray-600 hover:bg-gray-100'}`
-                  }>
-                  <img src={m.avatar_url} className="w-6 h-6 rounded-full flex-shrink-0" />
-                  <div className={`truncate flex-1 ${dmUnread[thread.id] ? 'font-semibold text-gray-900' : ''}`}>
-                    {labelContent}
+              const hasUnread = thread ? (dmUnread[thread.id] || 0) > 0 : false;
+
+              const inner = (isActive = false) => (
+                <>
+                  <img
+                    src={m.avatar_url}
+                    className="w-5 h-5 rounded-full flex-shrink-0 ring-1 ring-white/10"
+                    alt={m.name}
+                  />
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span
+                      className="truncate text-[13px] leading-tight"
+                      style={{
+                        fontWeight: hasUnread ? 600 : 400,
+                        color: isActive
+                          ? '#a78bfa'
+                          : hasUnread
+                          ? 'rgba(255,255,255,0.9)'
+                          : 'rgba(255,255,255,0.65)',
+                      }}
+                    >
+                      {m.name}
+                    </span>
+                    {m.email && (
+                      <span
+                        className="truncate text-[10px] leading-tight"
+                        style={{ color: 'rgba(255,255,255,0.28)' }}
+                      >
+                        {m.email}
+                      </span>
+                    )}
                   </div>
-                  <UnreadBadge count={dmUnread[thread.id] || 0} />
+                  {thread && <UnreadBadge count={dmUnread[thread.id] || 0} />}
+                </>
+              );
+
+              return thread ? (
+                <NavLink
+                  key={thread.id}
+                  to={`/dm/${thread.id}`}
+                  title={m.email}
+                  className={({ isActive }) =>
+                    [
+                      'flex items-center gap-2 px-2 py-[5px] rounded-md transition-all duration-100',
+                      isActive ? '' : 'hover:bg-[rgba(255,255,255,0.06)]',
+                    ].join(' ')
+                  }
+                  style={({ isActive }) =>
+                    isActive ? { background: 'rgba(124,58,237,0.18)' } : {}
+                  }
+                >
+                  {({ isActive }) => inner(isActive)}
                 </NavLink>
               ) : (
-                <button key={m.id} onClick={() => handleStartDM(m.id)}
+                <button
+                  key={m.id}
+                  onClick={() => handleStartDM(m.id)}
                   title={m.email}
-                  className="w-full flex items-center text-left gap-2.5 px-3 py-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors">
-                  <img src={m.avatar_url} className="w-6 h-6 rounded-full flex-shrink-0" />
-                  <div className="truncate flex-1">{labelContent}</div>
+                  className="w-full flex items-center text-left gap-2 px-2 py-[5px] rounded-md transition-colors duration-100"
+                  style={{ color: 'rgba(255,255,255,0.65)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {inner()}
                 </button>
               );
             })}
+
             {members.filter(m => m.id !== user?.id).length === 0 && (
-              <p className="text-xs text-gray-400 px-3 py-1.5 italic">No teammates yet</p>
+              <p
+                className="text-[11px] px-2 py-1.5 italic font-dm"
+                style={{ color: 'rgba(255,255,255,0.25)' }}
+              >
+                No teammates yet
+              </p>
             )}
           </div>
         </section>
 
+        {/* Boards */}
         <section>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Boards</span>
-            <button onClick={() => openCreateBoard()}
-              className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+          <div className="flex items-center justify-between px-2 mb-0.5">
+            <SectionLabel>Boards</SectionLabel>
+            <PlusBtn onClick={() => openCreateBoard()} />
           </div>
-          <div className="space-y-0.5">
+          <div className="space-y-px">
             {boards.map(b => (
-              <NavItem key={b.id} to={`/board/${b.id}`}
-                icon={
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
-                  </svg>
-                }
+              <NavItem
+                key={b.id}
+                to={`/board/${b.id}`}
+                icon={<IconBoard />}
                 label={b.name}
               />
             ))}
@@ -242,23 +499,15 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         </section>
       </div>
 
-      <div className="border-t border-gray-100 p-2 space-y-0.5">
-        <button onClick={() => openInvite()}
-          className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 transition-colors">
-          <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-          </svg>
-          Invite teammates
-        </button>
+      {/* ── Footer ── */}
+      <div
+        className="px-2 py-2 space-y-px"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
+      >
+        <FooterBtn icon={<IconInvite />} label="Invite teammates" onClick={() => openInvite()} />
 
         <div className="relative">
-          <button onClick={() => setShowNotif(!showNotif)}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 transition-colors">
-            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            Notifications
-          </button>
+          <FooterBtn icon={<IconBell />} label="Notifications" onClick={() => setShowNotif(!showNotif)} />
           {showNotif && (
             <div className="absolute bottom-10 left-0 right-0 z-50">
               <NotificationPanel onClose={() => setShowNotif(false)} />
@@ -266,18 +515,34 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           )}
         </div>
 
-        <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
-          <img src={user?.avatar_url} className="w-6 h-6 rounded-full flex-shrink-0" />
-          <span className="flex-1 text-sm text-gray-700 font-medium truncate">{user?.name}</span>
-          <button onClick={() => { logout(); navigate('/login'); }}
-            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors" title="Sign out">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
+        {/* User row */}
+        <div
+          className="flex items-center gap-2 px-2 py-1.5 mt-0.5 rounded-md"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}
+        >
+          <img
+            src={user?.avatar_url}
+            className="w-6 h-6 rounded-full flex-shrink-0"
+            alt={user?.name}
+          />
+          <span
+            className="flex-1 text-[13px] font-dm font-medium truncate"
+            style={{ color: 'rgba(255,255,255,0.75)' }}
+          >
+            {user?.name}
+          </span>
+          <button
+            onClick={() => { logout(); navigate('/login'); }}
+            className="p-1 rounded transition-colors"
+            title="Sign out"
+            style={{ color: 'rgba(255,255,255,0.3)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.7)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
+          >
+            <IconSignOut />
           </button>
         </div>
       </div>
-
     </div>
   );
 }

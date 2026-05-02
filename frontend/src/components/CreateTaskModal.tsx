@@ -17,6 +17,7 @@ export default function CreateTaskModal({ onClose, prefilledMessage, boardId, cr
   const { members } = useWorkspaceStore();
   const { columns, addTaskToColumn } = useBoardStore();
   const allColumns = columns;
+  console.log(members)
 
   const [form, setForm] = useState({
     title: prefilledMessage ? prefilledMessage.content.slice(0, 80) : '',

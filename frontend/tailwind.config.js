@@ -16,10 +16,22 @@ export default {
           800: '#3730a3',
           900: '#312e81',
         },
+        // Dark sidebar palette
+        sidebar: {
+          bg:      '#111118',
+          surface: '#18181f',
+          border:  'rgba(255,255,255,0.08)',
+          muted:   'rgba(255,255,255,0.35)',
+          text:    'rgba(255,255,255,0.75)',
+          hover:   'rgba(255,255,255,0.06)',
+          accent:  '#7C3AED',
+          'accent-muted': 'rgba(124,58,237,0.18)',
+        },
         surface: '#F9F9F8',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        dm: ['DM Sans', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         card: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
