@@ -15,9 +15,8 @@ interface CreateTaskModalProps {
 
 export default function CreateTaskModal({ onClose, prefilledMessage, boardId, createInColumn }: CreateTaskModalProps) {
   const { members } = useWorkspaceStore();
-  const { columns, addTaskToColumn } = useBoardStore();
+  const { columns } = useBoardStore();
   const allColumns = columns;
-  console.log(members)
 
   const [form, setForm] = useState({
     title: prefilledMessage ? prefilledMessage.content.slice(0, 80) : '',
@@ -51,7 +50,6 @@ export default function CreateTaskModal({ onClose, prefilledMessage, boardId, cr
         board_id: boardId,
         linked_message_id: prefilledMessage?.id || null,
       });
-      addTaskToColumn(data);
       onClose(data);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create task');

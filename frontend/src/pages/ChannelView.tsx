@@ -8,6 +8,7 @@ import useBoardStore from '../store/boardStore';
 import useUIStore from '../store/uiStore';
 import SocketContext from '../context/SocketContext';
 import MessageBubble from '../components/MessageBubble';
+import MessageComposer from '../components/MessageComposer';
 import { MessageListSkeleton } from '../components/Skeleton';
 import type { Message, Task, Reaction } from '../types';
 
@@ -137,9 +138,7 @@ export default function ChannelView() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e as unknown as React.FormEvent); }
-  };
+
 
   const handleCreateTask = (task: Task | null) => {
     if (task && createTaskMsg) {
@@ -183,10 +182,10 @@ export default function ChannelView() {
 
 
   return (
-    <div className="flex h-full bg-white relative">
-      <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex h-full relative">
+      <div className="flex-1 flex flex-col min-w-0 ">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 flex-shrink-0 bg-white">
           <div className="flex items-center gap-3">
             <span className="text-gray-400 text-lg font-light">#</span>
             <div>
@@ -251,38 +250,12 @@ export default function ChannelView() {
               <p className="text-sm text-gray-400">You are viewing a read-only history. New messages cannot be sent.</p>
             </div>
           ) : (
-            <form onSubmit={handleSend} className="flex items-center gap-3">
-              <div className="flex-1 relative">
-                <textarea
-                  className="input resize-none pr-12 py-3 min-h-[44px] max-h-32"
-                  placeholder={`Message #${channel?.name || ''}…`}
-                  value={content}
-                  onChange={e => setContent(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  rows={1}
-                  style={{ height: 'auto', minHeight: '44px' }}
-                  onInput={e => {
-                    (e.target as HTMLTextAreaElement).style.height = 'auto';
-                    (e.target as HTMLTextAreaElement).style.height = (e.target as HTMLTextAreaElement).scrollHeight + 'px';
-                  }}
-                />
-                {activeBoard && (
-                  <button type="button"
-                    onClick={() => handleOpenCreateTask(null)}
-                    className="absolute right-3 bottom-2.5 p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-primary-500 transition-colors"
-                    title="Create task">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <button type="submit" className="btn-primary px-4 py-2.5 flex-shrink-0" disabled={!content.trim()}>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
-            </form>
+            <MessageComposer
+              value={content}
+              onChange={setContent}
+              onSubmit={handleSend}
+              placeholder={`Message #${channel?.name || ''}…`}
+            />
           )}
         </div>
       </div>

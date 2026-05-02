@@ -5,6 +5,7 @@ import client from '../api/client';
 import useAuthStore from '../store/authStore';
 import SocketContext from '../context/SocketContext';
 import MessageBubble from './MessageBubble';
+import MessageComposer, { type MessageComposerHandle } from './MessageComposer';
 import type { Message, Reaction } from '../types';
 
 interface ThreadPanelProps {
@@ -34,7 +35,7 @@ export default function ThreadPanel({
   const { user } = useAuthStore();
   const socketRef = useContext(SocketContext);
   const endRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<MessageComposerHandle>(null);
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight');
 
@@ -148,7 +149,7 @@ export default function ThreadPanel({
   const handleReplyToMsg = (msg: Message) => {
     // Clicking reply on any depth-0 message sets replyingTo + focuses compose
     setReplyingTo(msg);
-    setTimeout(() => inputRef.current?.focus(), 50);
+    setTimeout(() => composerRef.current?.focus(), 50);
   };
 
   /** Scroll to a specific message in the thread list (used by quoted-card click) */
@@ -161,15 +162,6 @@ export default function ThreadPanel({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend(e as unknown as React.FormEvent);
-    }
-    if (e.key === 'Escape' && replyingTo) {
-      setReplyingTo(null);
-    }
-  };
 
   // Determine visual depth for each message
   const getDepth = (msg: Message): 0 | 1 => {
@@ -268,31 +260,16 @@ export default function ThreadPanel({
           </div>
         )}
 
-        <form onSubmit={handleSend} className="relative">
-          <textarea
-            ref={inputRef}
-            className="input resize-none pr-10 py-2.5 min-h-[40px] max-h-32 text-sm bg-white"
-            placeholder={replyingTo ? `Reply to ${replyingTo.sender?.name}…` : 'Reply…'}
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            onKeyDown={handleKeyDown}
-            rows={1}
-            style={{ height: 'auto' }}
-            onInput={e => {
-              (e.target as HTMLTextAreaElement).style.height = 'auto';
-              (e.target as HTMLTextAreaElement).style.height = (e.target as HTMLTextAreaElement).scrollHeight + 'px';
-            }}
-          />
-          <button
-            type="submit"
-            className="absolute right-2 bottom-2 p-1.5 rounded-md text-primary-600 hover:bg-primary-50 transition-colors"
-            disabled={!content.trim()}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          </button>
-        </form>
+        <MessageComposer
+          ref={composerRef}
+          variant="inline"
+          compact
+          value={content}
+          onChange={setContent}
+          onSubmit={handleSend}
+          placeholder={replyingTo ? `Reply to ${replyingTo.sender?.name}…` : 'Reply…'}
+          onKeyDown={e => { if (e.key === 'Escape' && replyingTo) setReplyingTo(null); }}
+        />
       </div>
     </div>
   );

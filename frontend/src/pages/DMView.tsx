@@ -7,6 +7,7 @@ import useUIStore from '../store/uiStore';
 import useBoardStore from '../store/boardStore';
 import SocketContext from '../context/SocketContext';
 import MessageBubble from '../components/MessageBubble';
+import MessageComposer from '../components/MessageComposer';
 import { MessageListSkeleton } from '../components/Skeleton';
 import type { Message, Task, Reaction } from '../types';
 
@@ -135,9 +136,7 @@ export default function DMView() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e as unknown as React.FormEvent); }
-  };
+
 
   const handleReply = (msg: Message) => {
     setActiveThreadId(msg.id);
@@ -167,11 +166,11 @@ export default function DMView() {
   };
 
   return (
-    <div className="flex h-full bg-white relative">
+    <div className="flex h-full relative">
       {/* Main DM view */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center gap-3 px-6 py-3.5 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-3 px-6 py-3.5 border-b border-gray-200 flex-shrink-0 bg-white">
           <div className="flex -space-x-1.5">
             {otherParticipants.slice(0, 2).map(p => (
               <img key={p.id} src={p.avatar_url} className="w-8 h-8 rounded-full border-2 border-white" alt={p.name} />
@@ -216,25 +215,12 @@ export default function DMView() {
 
         {/* Compose */}
         <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
-          <form onSubmit={handleSend} className="flex items-center gap-3">
-            <textarea
-              className="input flex-1 resize-none py-3 min-h-[44px] max-h-32"
-              placeholder={`Message ${title}…`}
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              onInput={e => {
-                (e.target as HTMLTextAreaElement).style.height = 'auto';
-                (e.target as HTMLTextAreaElement).style.height = (e.target as HTMLTextAreaElement).scrollHeight + 'px';
-              }}
-            />
-            <button type="submit" className="btn-primary px-4 py-2.5 flex-shrink-0" disabled={!content.trim()}>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
-          </form>
+          <MessageComposer
+            value={content}
+            onChange={setContent}
+            onSubmit={handleSend}
+            placeholder={`Message ${title}…`}
+          />
         </div>
       </div>
 
