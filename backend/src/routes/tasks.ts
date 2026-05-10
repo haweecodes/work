@@ -11,7 +11,7 @@ export const setIo = (socketIo: Server) => { io = socketIo; };
 
 async function sendAssignmentNotification(
   userId: string, actorId: string, actorName: string,
-  taskId: string, taskTitle: string, boardId: string,
+  taskId: string, taskTitle: string, _boardId: string,
   type: 'task_assigned' | 'task_unassigned'
 ) {
   const notifId = uuidv4();
@@ -23,72 +23,8 @@ async function sendAssignmentNotification(
     'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
     [notifId, userId, type, taskId, 'task', msg]
   );
-  if (io) io.to(`user:${userId}`).emit('notification', { id: notifId, type, message: msg });
-
-  if (actorId !== userId) {
-    const assigneeName = (await get<{ name: string }>('SELECT name FROM users WHERE id = ?', [userId]))?.name || 'A user';
-    const payload = JSON.stringify({ type, actorId, actorName, assigneeId: userId, assigneeName, taskTitle });
-
-    const board = await get('SELECT workspace_id FROM boards WHERE id = ?', [boardId]);
-    const creator = await get<{ name: string; avatar_url: string }>('SELECT name, avatar_url FROM users WHERE id = ?', [actorId]);
-    const taskObj = await get('SELECT id, title, priority, task_key, task_number FROM tasks WHERE id = ?', [taskId]);
-
-    if (board?.workspace_id) {
-      let threadId = (await get(
-        `SELECT dt.id FROM dm_threads dt
-         JOIN dm_participants dp1 ON dt.id = dp1.thread_id AND dp1.user_id = ?
-         JOIN dm_participants dp2 ON dt.id = dp2.thread_id AND dp2.user_id = ?
-         WHERE dt.workspace_id = ? LIMIT 1`,
-        [actorId, userId, board.workspace_id]
-      ))?.id;
-
-      if (!threadId) {
-        threadId = uuidv4();
-        await run('INSERT INTO dm_threads (id, workspace_id) VALUES (?, ?)', [threadId, board.workspace_id]);
-        await run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [threadId, actorId]);
-        await run('INSERT INTO dm_participants (thread_id, user_id) VALUES (?, ?)', [threadId, userId]);
-      }
-
-      const systemId = uuidv4();
-      await run(
-        'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, is_system) VALUES (?, ?, ?, ?, ?, 1)',
-        [systemId, threadId, actorId, payload, taskId]
-      );
-
-      const systemMsg = {
-        id: systemId, dm_thread_id: threadId, sender_id: actorId, content: payload,
-        linked_task_id: taskId, linked_task: taskObj, created_at: new Date().toISOString(),
-        sender: { id: actorId, name: creator?.name, avatar_url: creator?.avatar_url },
-        parent_message_id: null, reply_count: 0, reactions: [], is_system: 1,
-      };
-
-      if (io) {
-        io.to(`dm:${threadId}`).emit('new_dm', systemMsg);
-        io.to(`user:${userId}`).emit('notification', { id: uuidv4(), type: 'dm' });
-      }
-    }
-
-    const origin = await get<{ channel_id: string | null }>(
-      `SELECT m.channel_id FROM tasks t JOIN messages m ON t.linked_message_id = m.id WHERE t.id = ?`,
-      [taskId]
-    );
-    if (origin?.channel_id) {
-      const sysIdChannel = uuidv4();
-      await run(
-        'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, is_system) VALUES (?, ?, ?, ?, ?, 1)',
-        [sysIdChannel, origin.channel_id, actorId, payload, taskId]
-      );
-      if (io) {
-        const channelMsg = {
-          id: sysIdChannel, channel_id: origin.channel_id, sender_id: actorId, content: payload,
-          linked_task_id: taskId, linked_task: taskObj, created_at: new Date().toISOString(),
-          sender: { id: actorId, name: creator?.name, avatar_url: creator?.avatar_url },
-          parent_message_id: null, reply_count: 0, reactions: [], is_system: 1,
-        };
-        io.to(`channel:${origin.channel_id}`).emit('new_message', channelMsg);
-      }
-    }
-  }
+  if (io) io.to(`user:${userId}`).emit('notification', { id: notifId, type, message: msg, reference_id: taskId, reference_type: 'task' });
+  // System messages to DMs / channels removed — notification-only approach
 }
 
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
@@ -139,60 +75,19 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     const result = { ...task, assignees };
     if (io) io.to(`board:${board_id}`).emit('task_updated', { type: 'created', task: result });
 
-    if (linked_message_id && io) {
-      const origin = await get<{ channel_id: string | null; dm_thread_id: string | null; parent_message_id: string | null }>(
-        'SELECT channel_id, dm_thread_id, parent_message_id FROM messages WHERE id = ?', [linked_message_id]
-      );
-
-      if (origin) {
-        const systemContent = `🗂️ Task created: **${title}**`;
-        const systemId = uuidv4();
-        const creator = await get<{ name: string; avatar_url: string }>('SELECT name, avatar_url FROM users WHERE id = ?', [req.user.id]);
-
-        if (origin.channel_id) {
-          const postParentId = origin.parent_message_id ?? linked_message_id;
-          await run(
-            'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, parent_message_id, is_system) VALUES (?, ?, ?, ?, ?, ?, 1)',
-            [systemId, origin.channel_id, req.user.id, systemContent, id, postParentId]
-          );
-          const systemMsg = {
-            id: systemId, channel_id: origin.channel_id, sender_id: req.user.id, content: systemContent,
-            linked_task_id: id, linked_task: { id, title, priority: priority || 'medium', task_key, task_number },
-            created_at: new Date().toISOString(),
-            sender: { id: req.user.id, name: creator?.name, avatar_url: creator?.avatar_url },
-            parent_message_id: postParentId, reply_count: 0, reactions: [], is_system: 1,
-          };
-          if (origin.parent_message_id) {
-            const participants = await all<{ sender_id: string }>(
-              'SELECT DISTINCT sender_id FROM messages WHERE id = ? OR parent_message_id = ?', [postParentId, postParentId]
-            );
-            const notified = new Set<string>();
-            participants.forEach(p => { io!.to(`user:${p.sender_id}`).emit('new_message', systemMsg); notified.add(p.sender_id); });
-            if (!notified.has(req.user.id)) io.to(`user:${req.user.id}`).emit('new_message', systemMsg);
-          } else {
-            io.to(`channel:${origin.channel_id}`).emit('new_message', systemMsg);
-          }
-        } else if (origin.dm_thread_id) {
-          await run(
-            'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id, is_system) VALUES (?, ?, ?, ?, ?, ?, 1)',
-            [systemId, origin.dm_thread_id, req.user.id, systemContent, id, origin.parent_message_id || null]
-          );
-          const systemMsg = {
-            id: systemId, dm_thread_id: origin.dm_thread_id, sender_id: req.user.id, content: systemContent,
-            linked_task_id: id, linked_task: { id, title, priority: priority || 'medium', task_key, task_number },
-            created_at: new Date().toISOString(),
-            sender: { id: req.user.id, name: creator?.name, avatar_url: creator?.avatar_url },
-            parent_message_id: origin.parent_message_id || null, reply_count: 0, reactions: [], is_system: 1,
-          };
-          io.to(`dm:${origin.dm_thread_id}`).emit('new_dm', systemMsg);
-        }
-      }
-    }
-
     res.status(201).json(result);
   } catch (err: any) {
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+router.get('/detail/:id', authMiddleware, async (req: Request, res: Response) => {
+  const task = await get<{ id: string; board_id: string; task_key: string; title: string }>(
+    'SELECT id, board_id, task_key, title FROM tasks WHERE id = ?',
+    [req.params.id]
+  );
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json(task);
 });
 
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
@@ -207,11 +102,15 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       newPosition = existing.length;
     }
 
-    const parsedParentId = parent_task_id === req.params.id ? null : (parent_task_id ?? task.parent_task_id);
+    // Convert empty strings to null so PostgreSQL date/UUID columns don't reject them.
+    const resolvedDueDate = due_date !== undefined ? (due_date || null) : task.due_date;
+    const resolvedParentId = parent_task_id !== undefined
+      ? (parent_task_id === req.params.id ? null : (parent_task_id || null))
+      : task.parent_task_id;
 
     await run(
       'UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, column_id = ?, parent_task_id = ?, position = ? WHERE id = ?',
-      [title ?? task.title, description ?? task.description, priority ?? task.priority, due_date ?? task.due_date, column_id ?? task.column_id, parsedParentId, newPosition, req.params.id]
+      [title ?? task.title, description ?? task.description, priority ?? task.priority, resolvedDueDate, column_id ?? task.column_id, resolvedParentId, newPosition, req.params.id]
     );
 
     if (assignee_ids && Array.isArray(assignee_ids)) {

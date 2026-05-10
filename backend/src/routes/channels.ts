@@ -95,6 +95,7 @@ async function enrichMessage(m: any) {
     shared_message_id: m.shared_message_id ?? null,
     shared_message,
     is_system: m.is_system ?? 0,
+    edited_at: m.edited_at ?? null,
   };
 }
 
@@ -254,11 +255,12 @@ router.post('/messages', authMiddleware, async (req: Request, res: Response) => 
         );
         if (mentionedUser && mentionedUser.id !== req.user?.id) {
           const notifId = uuidv4();
+          const notifMsg = `${req.user?.name || 'A user'} mentioned you: "${content.slice(0, 80)}"`;
           await run(
             'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
-            [notifId, mentionedUser.id, 'mention', id, 'message', `${req.user?.name || 'A user'} mentioned you: "${content.slice(0, 80)}"`]
+            [notifId, mentionedUser.id, 'mention', channel_id, 'channel', notifMsg]
           );
-          if (io) io.to(`user:${mentionedUser.id}`).emit('notification', { id: notifId, type: 'mention' });
+          if (io) io.to(`user:${mentionedUser.id}`).emit('notification', { id: notifId, type: 'mention', message: notifMsg, reference_id: channel_id, reference_type: 'channel' });
         }
       }
     }
@@ -434,6 +436,57 @@ router.post('/messages/:messageId/share', authMiddleware, async (req: Request, r
   } catch (err: any) {
     console.error('SHARE ERROR:', err);
     res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+// ── Message edit / delete ────────────────────────────────────────────────────
+
+router.patch('/messages/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const msg = await get<any>('SELECT * FROM messages WHERE id = ?', [req.params.id]);
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
+    if (msg.sender_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
+    if (msg.is_system) return res.status(403).json({ error: 'Cannot edit system messages' });
+
+    const trimmed = content.trim();
+    await run('UPDATE messages SET content = ?, edited_at = NOW() WHERE id = ?', [trimmed, req.params.id]);
+
+    const editedAt = new Date().toISOString();
+    const payload = { messageId: req.params.id, content: trimmed, editedAt };
+    if (io) {
+      const room = msg.channel_id ? `channel:${msg.channel_id}` : `dm:${msg.dm_thread_id}`;
+      io.to(room).emit('message_updated', payload);
+    }
+    res.json({ success: true, ...payload });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.delete('/messages/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const msg = await get<any>('SELECT * FROM messages WHERE id = ?', [req.params.id]);
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
+    if (msg.sender_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
+    if (msg.is_system) return res.status(403).json({ error: 'Cannot delete system messages' });
+
+    await run('DELETE FROM message_reactions WHERE message_id = ?', [req.params.id]);
+    await run('DELETE FROM messages WHERE id = ?', [req.params.id]);
+
+    const payload = { messageId: req.params.id };
+    if (io) {
+      const room = msg.channel_id ? `channel:${msg.channel_id}` : `dm:${msg.dm_thread_id}`;
+      io.to(room).emit('message_deleted', payload);
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

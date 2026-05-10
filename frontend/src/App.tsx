@@ -17,6 +17,8 @@ const DMView          = lazy(() => import('./pages/DMView'));
 const BoardView       = lazy(() => import('./pages/BoardView'));
 const JoinWorkspace   = lazy(() => import('./pages/JoinWorkspace'));
 const TaskRedirect    = lazy(() => import('./pages/TaskRedirect'));
+const DocsView        = lazy(() => import('./pages/DocsView'));
+const CalendarView    = lazy(() => import('./pages/CalendarView'));
 
 // ── Fallbacks ─────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,12 @@ export default function App() {
             } />
             <Route path="board/:boardId" element={
               <Suspense fallback={<BoardLoader />}><BoardView /></Suspense>
+            } />
+            <Route path="docs" element={
+              <Suspense fallback={<ChannelLoader />}><DocsView /></Suspense>
+            } />
+            <Route path="calendar" element={
+              <Suspense fallback={<ChannelLoader />}><CalendarView /></Suspense>
             } />
           </Route>
 

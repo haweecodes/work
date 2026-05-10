@@ -119,6 +119,8 @@ export interface Message {
   shared_message_id?: string;
   shared_message?: SharedMessagePreview;
   is_system?: number;
+  edited_at?: string | null;
+  deleted?: boolean;
 }
 
 export interface Notification {

@@ -6,24 +6,31 @@ import type { Message, Task } from '../types';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'critical'];
 
+interface TaskPrefill {
+  title?: string;
+  priority?: string;
+  due_date?: string;
+}
+
 interface CreateTaskModalProps {
   onClose: (task: Task | null) => void;
   prefilledMessage?: Message | null;
+  prefilledData?: TaskPrefill;
   boardId: string;
   createInColumn?: string;
 }
 
-export default function CreateTaskModal({ onClose, prefilledMessage, boardId, createInColumn }: CreateTaskModalProps) {
+export default function CreateTaskModal({ onClose, prefilledMessage, prefilledData, boardId, createInColumn }: CreateTaskModalProps) {
   const { members } = useWorkspaceStore();
   const { columns } = useBoardStore();
   const allColumns = columns;
 
   const [form, setForm] = useState({
-    title: prefilledMessage ? prefilledMessage.content.slice(0, 80) : '',
+    title: prefilledData?.title ?? (prefilledMessage ? prefilledMessage.content.slice(0, 80) : ''),
     description: prefilledMessage ? prefilledMessage.content : '',
     column_id: createInColumn || allColumns[0]?.id || '',
-    priority: 'medium',
-    due_date: '',
+    priority: prefilledData?.priority ?? 'medium',
+    due_date: prefilledData?.due_date ?? '',
     assignee_ids: [] as string[],
     parent_task_id: '',
   });

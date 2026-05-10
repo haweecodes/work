@@ -21,6 +21,7 @@ const useNotificationStore = create<NotificationState>((set) => ({
   },
 
   addNotification: (notif: Notification) => {
+    if (notif.type === 'dm') return; // DM messages are tracked via sidebar unread count, not notifications
     set((s) => ({
       notifications: [notif, ...s.notifications],
       unreadCount: s.unreadCount + 1,

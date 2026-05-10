@@ -4,6 +4,7 @@ import useAuthStore from '../../store/authStore';
 import useWorkspaceStore from '../../store/workspaceStore';
 import useBoardStore from '../../store/boardStore';
 import useUIStore from '../../store/uiStore';
+import useNotificationStore from '../../store/notificationStore';
 import NotificationPanel from '../NotificationPanel';
 import client from '../../api/client';
 import type { Workspace, Channel, DmThread } from '../../types';
@@ -15,7 +16,7 @@ function UnreadBadge({ count }: { count: number }) {
   return (
     <span
       className="ml-auto flex-shrink-0 min-w-[16px] h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1"
-      style={{ background: '#7C3AED' }}
+      style={{ background: '#D97706' }}
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -147,6 +148,18 @@ const IconSignOut = () => (
       d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
   </svg>
 );
+const IconDoc = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+const IconCalendar = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
 
 /* ─── bottom action button ───────────────────────────────────────────── */
 
@@ -188,6 +201,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   } = useWorkspaceStore();
   const { boards, fetchBoards } = useBoardStore();
   const { openCreateBoard, openInvite, channelUnread, dmUnread } = useUIStore();
+  const notifUnread = useNotificationStore(s => s.unreadCount);
 
   const [showNotif, setShowNotif]         = useState(false);
   const [showWorkspaces, setShowWorkspaces] = useState(false);
@@ -480,6 +494,17 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           </div>
         </section>
 
+        {/* Workspace tools */}
+        <section>
+          <div className="flex items-center justify-between px-2 mb-0.5">
+            <SectionLabel>Workspace</SectionLabel>
+          </div>
+          <div className="space-y-px">
+            <NavItem to="/docs"     icon={<IconDoc />}      label="Docs"     />
+            <NavItem to="/calendar" icon={<IconCalendar />} label="Calendar" />
+          </div>
+        </section>
+
         {/* Boards */}
         <section>
           <div className="flex items-center justify-between px-2 mb-0.5">
@@ -507,7 +532,30 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         <FooterBtn icon={<IconInvite />} label="Invite teammates" onClick={() => openInvite()} />
 
         <div className="relative">
-          <FooterBtn icon={<IconBell />} label="Notifications" onClick={() => setShowNotif(!showNotif)} />
+          <button
+            onClick={() => setShowNotif(!showNotif)}
+            className="w-full flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] font-dm transition-colors duration-100"
+            style={{ color: notifUnread > 0 ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.5)' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <span
+              className="flex-shrink-0 w-4 flex items-center justify-center"
+              style={{ color: notifUnread > 0 ? '#f87171' : 'inherit' }}
+            >
+              <IconBell />
+            </span>
+            <span className="flex-1 text-left">Notifications</span>
+            {notifUnread > 0 && (
+              <span
+                className="ml-auto flex-shrink-0 min-w-[16px] h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1"
+                style={{ background: '#f87171' }}
+              >
+                {notifUnread > 9 ? '9+' : notifUnread}
+              </span>
+            )}
+          </button>
+
           {showNotif && (
             <div className="absolute bottom-10 left-0 right-0 z-50">
               <NotificationPanel onClose={() => setShowNotif(false)} />

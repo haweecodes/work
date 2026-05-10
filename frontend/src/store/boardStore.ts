@@ -16,6 +16,7 @@ interface BoardState {
   moveTaskLocally: (taskId: string, fromColId: string, toColId: string, newIndex: number) => void;
   addColumn: (col: Omit<Column, 'tasks'>) => void;
   addTaskToColumn: (task: Task) => void;
+  updateBoardName: (id: string, name: string) => void;
 }
 
 const useBoardStore = create<BoardState>((set) => ({
@@ -88,6 +89,9 @@ const useBoardStore = create<BoardState>((set) => ({
   },
 
   addColumn: (col) => set((s) => ({ columns: [...s.columns, { ...col, tasks: [] }] })),
+
+  updateBoardName: (id: string, name: string) =>
+    set(s => ({ boards: s.boards.map(b => b.id === id ? { ...b, name } : b) })),
 
   addTaskToColumn: (task: Task) => {
     set((s) => ({

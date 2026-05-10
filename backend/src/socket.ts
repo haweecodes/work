@@ -42,6 +42,21 @@ export function initSocket(server: any, allowedOrigins: string[]) {
       socket.join(`user:${userId}`);
     });
 
+    // Typing indicators — broadcast to room members excluding the sender
+    socket.on('typing_start', ({ channelId, dmThreadId, userId, userName }: {
+      channelId?: string; dmThreadId?: string; userId: string; userName: string;
+    }) => {
+      const room = channelId ? `channel:${channelId}` : dmThreadId ? `dm:${dmThreadId}` : null;
+      if (room) socket.to(room).emit('user_typing', { userId, userName, channelId, dmThreadId });
+    });
+
+    socket.on('typing_stop', ({ channelId, dmThreadId, userId }: {
+      channelId?: string; dmThreadId?: string; userId: string;
+    }) => {
+      const room = channelId ? `channel:${channelId}` : dmThreadId ? `dm:${dmThreadId}` : null;
+      if (room) socket.to(room).emit('user_stopped_typing', { userId, channelId, dmThreadId });
+    });
+
     socket.on('disconnect', () => {
       // console.log('Client disconnected:', socket.id);
     });

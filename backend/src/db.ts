@@ -12,6 +12,8 @@ function toPg(query: string): string {
 export async function initDb(): Promise<void> {
   try {
     await sql`SELECT 1`;
+    // Safe schema migrations — IF NOT EXISTS means these are idempotent
+    await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`;
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {
     console.error('❌ Database connection failed:', err);

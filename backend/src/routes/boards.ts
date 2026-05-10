@@ -16,7 +16,7 @@ router.get('/:workspaceId', authMiddleware, requireWorkspaceMember('workspaceId'
 
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { workspace_id, name } = req.body;
+    const { workspace_id, name, columns } = req.body;
     if (!workspace_id || !name) {
       return res.status(400).json({ error: 'workspace_id and name required' });
     }
@@ -39,14 +39,28 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     await run('INSERT INTO boards (id, workspace_id, name, project_key) VALUES (?, ?, ?, ?)',
       [id, workspace_id, name, project_key]);
 
-    const defaultCols = ['To Do', 'In Progress', 'In Review', 'Done'];
-    for (let i = 0; i < defaultCols.length; i++) {
+    const cols: string[] = (Array.isArray(columns) && columns.length > 0)
+      ? columns
+      : ['To Do', 'In Progress', 'In Review', 'Done'];
+    for (let i = 0; i < cols.length; i++) {
       await run('INSERT INTO columns (id, board_id, title, position) VALUES (?, ?, ?, ?)',
-        [uuidv4(), id, defaultCols[i], i]);
+        [uuidv4(), id, cols[i], i]);
     }
 
     const board = await get('SELECT * FROM boards WHERE id = ?', [id]);
     res.status(201).json(board);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+    await run('UPDATE boards SET name = ? WHERE id = ?', [name.trim(), req.params.id]);
+    const board = await get('SELECT * FROM boards WHERE id = ?', [req.params.id]);
+    res.json(board);
   } catch (err: any) {
     res.status(500).json({ error: 'Server error' });
   }

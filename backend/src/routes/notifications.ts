@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.get('/:userId', authMiddleware, async (req: Request, res: Response) => {
   const notifications = await all(
-    'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
+    "SELECT * FROM notifications WHERE user_id = ? AND type != 'dm' ORDER BY created_at DESC LIMIT 50",
     [req.params.userId]
   );
   res.json(notifications);

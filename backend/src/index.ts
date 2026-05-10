@@ -12,6 +12,7 @@ import boardRoutes from './routes/boards';
 import taskRoutes, { setIo as setTaskIo } from './routes/tasks';
 import dmRoutes, { setIo as setDmIo } from './routes/dms';
 import notificationRoutes from './routes/notifications';
+import searchRoutes from './routes/search';
 
 const app = express();
 const server = createServer(app);
@@ -51,6 +52,7 @@ app.use('/api/boards', boardRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/dms', dmRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/search', searchRoutes);
 
 const PORT = process.env.PORT || 3001;
 

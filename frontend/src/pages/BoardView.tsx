@@ -235,13 +235,18 @@ function Column({ col, onAddTask }: { col: ColumnType; onAddTask: (colId: string
 export default function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn, selectedTask, setSelectedTask } = useBoardStore();
+  const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn, selectedTask, setSelectedTask, updateBoardName } = useBoardStore();
   const socketRef = useContext(SocketContext);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [createInColumn, setCreateInColumn] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showAddColumn, setShowAddColumn] = useState(false);
+  const [newColName, setNewColName] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const newColInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * Tracks which column the pointer was last over during a drag.
@@ -383,11 +388,32 @@ export default function BoardView() {
     setShowCreateTask(true);
   };
 
-  const handleAddColumn = async () => {
-    const title = prompt('Column name:');
-    if (!title || !boardId) return;
+  const handleAddColumn = () => {
+    setNewColName('');
+    setShowAddColumn(true);
+    setTimeout(() => newColInputRef.current?.focus(), 50);
+  };
+
+  const submitNewColumn = async () => {
+    const title = newColName.trim();
+    if (!title || !boardId) { setShowAddColumn(false); return; }
     const { data } = await client.post(`/api/boards/${boardId}/columns`, { title });
     addColumn(data);
+    setShowAddColumn(false);
+    setNewColName('');
+  };
+
+  const handleNameEdit = () => {
+    setNameValue(board?.name || '');
+    setEditingName(true);
+  };
+
+  const submitNameEdit = async () => {
+    const trimmed = nameValue.trim();
+    setEditingName(false);
+    if (!trimmed || trimmed === board?.name || !boardId) return;
+    await client.patch(`/api/boards/${boardId}`, { name: trimmed });
+    updateBoardName(boardId, trimmed);
   };
 
   if (loading) {
@@ -411,7 +437,30 @@ export default function BoardView() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white flex-shrink-0">
         <div>
-          <h1 className="font-semibold text-gray-900">{board?.name || 'Board'}</h1>
+          {editingName ? (
+            <input
+              autoFocus
+              className="font-semibold text-gray-900 text-base border-b-2 border-primary-400 outline-none bg-transparent px-0.5 -mx-0.5 w-64"
+              value={nameValue}
+              onChange={e => setNameValue(e.target.value)}
+              onBlur={submitNameEdit}
+              onKeyDown={e => {
+                if (e.key === 'Enter') submitNameEdit();
+                if (e.key === 'Escape') setEditingName(false);
+              }}
+            />
+          ) : (
+            <button
+              onClick={handleNameEdit}
+              className="group flex items-center gap-1.5 font-semibold text-gray-900 hover:text-primary-600 transition-colors"
+              title="Click to rename"
+            >
+              {board?.name || 'Board'}
+              <svg className="w-3 h-3 text-gray-300 group-hover:text-primary-400 transition-colors opacity-0 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </button>
+          )}
           <p className="text-xs text-gray-400">
             {columns.reduce((acc, c) => acc + (c.tasks?.length ?? 0), 0)} tasks
           </p>
@@ -429,7 +478,6 @@ export default function BoardView() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
-          <button onClick={handleAddColumn} className="btn-ghost text-xs">+ Add column</button>
           <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary text-xs px-3 py-1.5 shadow-sm">
             + New task
           </button>
@@ -458,7 +506,39 @@ export default function BoardView() {
               return <Column key={col.id} col={filteredCol} onAddTask={handleAddTask} />;
             })}
 
-            {columns.length === 0 && (
+            {/* Inline "Add column" card */}
+            {showAddColumn ? (
+              <div className="flex-shrink-0 w-72 bg-gray-50/80 rounded-2xl p-3 border-2 border-dashed border-primary-300">
+                <input
+                  ref={newColInputRef}
+                  className="w-full text-sm font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 outline-none mb-2"
+                  style={{ borderColor: '#818cf8' }}
+                  placeholder="Column name"
+                  value={newColName}
+                  onChange={e => setNewColName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') submitNewColumn();
+                    if (e.key === 'Escape') setShowAddColumn(false);
+                  }}
+                />
+                <div className="flex gap-1.5">
+                  <button onClick={submitNewColumn} className="btn-primary text-xs px-3 py-1">Add</button>
+                  <button onClick={() => setShowAddColumn(false)} className="btn-ghost text-xs px-3 py-1">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={handleAddColumn}
+                className="flex-shrink-0 w-72 flex items-center justify-center gap-2 h-12 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-primary-300 hover:text-primary-500 transition-colors text-sm font-medium"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add column
+              </button>
+            )}
+
+            {columns.length === 0 && !showAddColumn && (
               <div className="flex items-center justify-center w-full">
                 <div className="text-center">
                   <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
@@ -467,7 +547,7 @@ export default function BoardView() {
                     </svg>
                   </div>
                   <p className="text-sm font-medium text-gray-700 mb-1">No columns yet</p>
-                  <button onClick={handleAddColumn} className="btn-primary text-sm">Add column</button>
+                  <button onClick={handleAddColumn} className="btn-primary text-sm">Add first column</button>
                 </div>
               </div>
             )}

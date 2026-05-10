@@ -2,11 +2,12 @@ import { useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useNotificationStore from '../store/notificationStore';
 import useAuthStore from '../store/authStore';
+import client from '../api/client';
 import { formatDistanceToNow } from 'date-fns';
+import type { Notification } from '../types';
 
 const TYPE_ICONS: Record<string, string> = {
   mention: '💬',
-  dm: '✉️',
   task_assigned: '✅',
   task_due: '⏰',
 };
@@ -14,8 +15,14 @@ const TYPE_ICONS: Record<string, string> = {
 export default function NotificationPanel({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
-  const { notifications, unreadCount, markAllRead, markRead } = useNotificationStore();
+  const { notifications, unreadCount, markAllRead, markRead, fetchNotifications } = useNotificationStore();
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Re-fetch on every open so missed socket events don't leave stale badge counts
+  useEffect(() => {
+    if (user) fetchNotifications(user.id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -24,6 +31,27 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  async function handleNotifClick(n: Notification) {
+    markRead(n.id);
+    onClose();
+
+    if ((n.type === 'task_assigned' || n.type === 'task_due') && n.reference_id) {
+      try {
+        const { data } = await client.get<{ board_id: string; task_key: string }>(
+          `/api/tasks/detail/${n.reference_id}`
+        );
+        navigate(`/board/${data.board_id}?taskKey=${data.task_key}`);
+      } catch {
+        // task may have been deleted — navigate silently
+      }
+      return;
+    }
+
+    if (n.type === 'mention' && n.reference_type === 'channel' && n.reference_id) {
+      navigate(`/channel/${n.reference_id}`);
+    }
+  }
 
   return (
     <div ref={panelRef} className="bg-white rounded-xl shadow-dropdown border border-gray-100 py-2 animate-fade-in max-h-96 overflow-y-auto">
@@ -44,8 +72,9 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
       ) : (
         <div>
           {notifications.map(n => (
-            <button key={n.id} onClick={() => { markRead(n.id); onClose(); }}
-              className={`w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left ${!n.is_read ? 'bg-primary-50/50' : ''}`}>
+            <button key={n.id} onClick={() => handleNotifClick(n)}
+              className="w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+              style={!n.is_read ? { background: 'rgba(238,242,255,0.6)' } : undefined}>
               <span className="text-base flex-shrink-0 mt-0.5">{TYPE_ICONS[n.type] || '🔔'}</span>
               <div className="flex-1 min-w-0">
                 <p className={`text-sm leading-snug ${!n.is_read ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>

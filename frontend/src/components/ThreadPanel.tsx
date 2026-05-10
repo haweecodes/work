@@ -11,12 +11,14 @@ import type { Message, Reaction } from '../types';
 interface ThreadPanelProps {
   parentMessage: Message;
   onClose: () => void;
-  /** For channels: channelId. For DMs: null (use dmThreadId instead) */
   channelId?: string;
-  /** For DM threads */
   dmThreadId?: string;
   onCreateTask: (msg: Message) => void;
   onShare: (msg: Message) => void;
+  /** Notify parent list when a message is edited so both views stay in sync */
+  onMessageUpdated?: (msgId: string, content: string, editedAt?: string) => void;
+  /** Notify parent list when a message is deleted */
+  onMessageDeleted?: (msgId: string) => void;
 }
 
 export default function ThreadPanel({
@@ -26,6 +28,8 @@ export default function ThreadPanel({
   dmThreadId,
   onCreateTask,
   onShare,
+  onMessageUpdated,
+  onMessageDeleted,
 }: ThreadPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [content, setContent] = useState('');
@@ -43,6 +47,17 @@ export default function ThreadPanel({
 
   const handleReactionToggle = (messageId: string, reactions: Reaction[]) => {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+  };
+
+  // Update local thread state and notify the parent message list
+  const handleMsgUpdated = (msgId: string, content: string, editedAt?: string) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content, edited_at: editedAt ?? new Date().toISOString() } : m));
+    onMessageUpdated?.(msgId, content, editedAt);
+  };
+
+  const handleMsgDeleted = (msgId: string) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, deleted: true } : m));
+    onMessageDeleted?.(msgId);
   };
 
   // Build thread fetch URL
@@ -109,11 +124,24 @@ export default function ThreadPanel({
       const handleReactionUpdated = ({ messageId, reactions }: { messageId: string; reactions: Reaction[] }) => {
         setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
       };
-      socket.on('reaction_updated', handleReactionUpdated);
+
+      const handleMessageUpdated = ({ messageId, content: c, editedAt }: { messageId: string; content: string; editedAt?: string }) => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: c, edited_at: editedAt ?? new Date().toISOString() } : m));
+      };
+
+      const handleMessageDeleted = ({ messageId }: { messageId: string }) => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, deleted: true } : m));
+      };
+
+      socket.on('reaction_updated',  handleReactionUpdated);
+      socket.on('message_updated',   handleMessageUpdated);
+      socket.on('message_deleted',   handleMessageDeleted);
 
       return () => {
-        socket.off(eventName, handleNewMessage);
+        socket.off(eventName,          handleNewMessage);
         socket.off('reaction_updated', handleReactionUpdated);
+        socket.off('message_updated',  handleMessageUpdated);
+        socket.off('message_deleted',  handleMessageDeleted);
       };
     }
   }, [parentMessage.id, channelId, dmThreadId]);
@@ -175,86 +203,137 @@ export default function ThreadPanel({
     return messages.find(m => m.id === msg.parent_message_id);
   };
 
-  const contextLabel = channelId ? `#${channelId}` : 'DM Thread';
 
 
   return (
-    <div className="flex flex-col h-full bg-white relative">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 flex-shrink-0">
-        <div>
-          <h2 className="font-semibold text-gray-900">Thread</h2>
-          <p className="text-xs text-gray-500">{contextLabel}</p>
+    <div className="flex flex-col h-full" style={{ background: '#FFFFFF' }}>
+
+      {/* ── Header — matches right-panel style ── */}
+      <div
+        className="flex items-center justify-between px-4 py-3.5 border-b flex-shrink-0"
+        style={{ borderColor: '#E5E7EB' }}
+      >
+        <div className="flex items-center gap-2">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: '#9CA3AF', flexShrink: 0 }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+          <h3 className="text-[14px] font-semibold text-gray-900">Thread</h3>
+          {messages.length > 0 && (
+            <span className="text-[12px]" style={{ color: '#9CA3AF' }}>
+              {messages.length} {messages.length === 1 ? 'reply' : 'replies'}
+            </span>
+          )}
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <button
+          onClick={onClose}
+          className="p-1 rounded-md transition-colors"
+          style={{ color: '#9CA3AF' }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#F3F4F6'; e.currentTarget.style.color = '#374151'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9CA3AF'; }}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {/* Root (parent) message */}
-        <div className="border-b border-gray-100 pb-2 mb-2 pt-2">
+      {/* ── Scrollable body ── */}
+      <div className="flex-1 overflow-y-auto min-h-0" style={{ scrollbarWidth: 'thin' }}>
+
+        {/* Root message — lightly tinted */}
+        <div className="border-b pb-1 pt-1" style={{ borderColor: '#F3F4F6', background: '#FAFAFA' }}>
           <MessageBubble
             msg={parentMessage}
             onCreateTask={onCreateTask}
             onShare={onShare}
+            onMessageUpdated={handleMsgUpdated}
+            onMessageDeleted={handleMsgDeleted}
             inThread
           />
-          <div className="mt-2 mx-5 flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            <span>{messages.length} {messages.length === 1 ? 'Reply' : 'Replies'}</span>
-            <div className="flex-1 h-px bg-gray-100" />
-          </div>
         </div>
 
+        {/* Reply count divider */}
+        {messages.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2">
+            <span className="text-[10.5px] font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>
+              {messages.length} {messages.length === 1 ? 'Reply' : 'Replies'}
+            </span>
+            <div className="flex-1 h-px" style={{ background: '#F3F4F6' }} />
+          </div>
+        )}
+
         {loading ? (
-          <div className="flex justify-center py-4">
-            <div className="w-5 h-5 border-2 border-primary-300 border-t-primary-600 rounded-full animate-spin" />
+          <div className="flex justify-center py-6">
+            <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: '#E5E7EB', borderTopColor: '#7C3AED' }} />
           </div>
         ) : (
-          <div className="space-y-0.5 pb-2">
-            {messages.map(msg => {
+          <div className="space-y-0 pb-2">
+            {messages.map((msg, i) => {
               const depth = getDepth(msg);
               const replyTo = getReplyTo(msg);
+              const prev = messages[i - 1];
+              const isContinuation = !!prev
+                && !msg.is_system && !prev.is_system
+                && !msg.deleted && !prev.deleted
+                && msg.sender_id === prev.sender_id
+                && depth === getDepth(prev)
+                && (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) < 5 * 60 * 1000;
               return (
-                <div key={msg.id}>
-                  <MessageBubble
-                    msg={msg}
-                    depth={depth}
-                    inThread
-                    replyTo={replyTo}
-                    onCreateTask={onCreateTask}
-                    onShare={onShare}
-                    onReactionToggle={handleReactionToggle}
-                    onReply={depth === 0 ? handleReplyToMsg : scrollToMsg}
-                  />
-                </div>
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  depth={depth}
+                  inThread
+                  replyTo={replyTo}
+                  isContinuation={isContinuation}
+                  onCreateTask={onCreateTask}
+                  onShare={onShare}
+                  onMessageUpdated={handleMsgUpdated}
+                  onMessageDeleted={handleMsgDeleted}
+                  onReactionToggle={handleReactionToggle}
+                  onReply={depth === 0 ? handleReplyToMsg : scrollToMsg}
+                />
               );
             })}
+            {messages.length === 0 && !loading && (
+              <p className="text-center text-[13px] py-6" style={{ color: '#9CA3AF' }}>
+                No replies yet — be the first!
+              </p>
+            )}
             <div ref={endRef} />
           </div>
         )}
       </div>
 
-      {/* Compose area */}
-      <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0 bg-gray-50/50">
-        {/* Replying-to quote bar */}
+      {/* ── Compose area ── */}
+      <div
+        className="px-4 py-3 border-t flex-shrink-0"
+        style={{ borderColor: '#E5E7EB', background: '#FAFAFA' }}
+      >
+        {/* Replying-to bar */}
         {replyingTo && (
-          <div className="flex items-start gap-2 mb-2 px-3 py-2 rounded-lg bg-primary-50 border border-primary-100">
+          <div
+            className="flex items-start gap-2 mb-2 px-3 py-2 rounded-lg border"
+            style={{ background: '#EDE9FE', borderColor: '#C4B5FD' }}
+          >
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-primary-700 mb-0.5">
+              <p className="text-[11px] font-semibold mb-0.5" style={{ color: '#7C3AED' }}>
                 Replying to {replyingTo.sender?.name}
               </p>
-              <p className="text-xs text-primary-600 truncate">{replyingTo.content}</p>
+              <p className="text-[11.5px] truncate" style={{ color: '#6D28D9' }}>
+                {replyingTo.content}
+              </p>
             </div>
             <button
               type="button"
               onClick={() => setReplyingTo(null)}
-              className="flex-shrink-0 p-0.5 rounded hover:bg-primary-100 text-primary-400"
+              className="flex-shrink-0 p-0.5 rounded transition-colors"
+              style={{ color: '#A78BFA' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#7C3AED')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#A78BFA')}
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
@@ -267,7 +346,7 @@ export default function ThreadPanel({
           value={content}
           onChange={setContent}
           onSubmit={handleSend}
-          placeholder={replyingTo ? `Reply to ${replyingTo.sender?.name}…` : 'Reply…'}
+          placeholder={replyingTo ? `Reply to ${replyingTo.sender?.name}…` : 'Reply in thread…'}
           onKeyDown={e => { if (e.key === 'Escape' && replyingTo) setReplyingTo(null); }}
         />
       </div>

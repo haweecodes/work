@@ -34,8 +34,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socket.emit('join_user', user.id);
     });
 
-    socket.on('notification', (notif: Notification) => {
-      addNotification(notif);
+    // Backend emits a partial payload {id, type, message?} — fill in the rest
+    // so addNotification receives a complete Notification object.
+    socket.on('notification', (partial: Pick<Notification, 'id' | 'type' | 'message'>) => {
+      addNotification({
+        user_id: user.id,
+        reference_id: undefined,
+        reference_type: undefined,
+        is_read: 0,
+        created_at: new Date().toISOString(),
+        ...partial,
+      });
     });
 
     socket.on('member_joined', (member: any) => {

@@ -38,6 +38,7 @@ export default function TaskDetailPanel() {
     parent_task_id: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
   
@@ -47,31 +48,28 @@ export default function TaskDetailPanel() {
 
   const [copiedKey, setCopiedKey] = useState(false);
 
-  // Re-fetch the full task (with joined message data) whenever the selected task changes.
-  // The task objects in the store may be partial (opened from a message chip), so we always
-  // pull fresh data from the dedicated endpoint before rendering the form.
+  // Fetch the full enriched task whenever the selected task ID changes.
+  // We populate the form from fresh API data but do NOT write back to the store
+  // (setSelectedTask inside the effect would re-trigger BoardView's URL-sync
+  // effect and cause an infinite fetch loop).
   useEffect(() => {
     if (!selectedTask) return;
     setLoading(true);
-    setForm(null); // clear stale form while loading
-    // reset copied state on task change
+    setForm(null);
     setCopiedKey(false);
     client.get(`/api/tasks/task/${selectedTask.id}`)
       .then(({ data }) => {
-        const merged = { ...selectedTask, ...data };
-        setSelectedTask(merged);
         setForm({
-          title: merged.title,
-          description: merged.description || '',
-          priority: merged.priority || 'medium',
-          due_date: merged.due_date || '',
-          column_id: merged.column_id,
-          assignee_ids: merged.assignees?.map((a: any) => a.id) || [],
-          parent_task_id: merged.parent_task_id || '',
+          title: data.title,
+          description: data.description || '',
+          priority: data.priority || 'medium',
+          due_date: data.due_date || '',
+          column_id: data.column_id || selectedTask.column_id,
+          assignee_ids: data.assignees?.map((a: any) => a.id) || [],
+          parent_task_id: data.parent_task_id || '',
         });
       })
       .catch(() => {
-        // Fallback: use whatever data we have
         setForm({
           title: selectedTask.title,
           description: selectedTask.description || '',
@@ -89,6 +87,7 @@ export default function TaskDetailPanel() {
   const handleSave = async () => {
     if (!form || !selectedTask) return;
     setSaving(true);
+    setSaveStatus('idle');
     try {
       const { data } = await client.patch(`/api/tasks/${selectedTask.id}`, form);
       const assignees: TaskAssignee[] = members
@@ -97,8 +96,12 @@ export default function TaskDetailPanel() {
       const updatedTask = { ...data, assignees };
       updateTaskInColumn(updatedTask);
       setSelectedTask(updatedTask);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2500);
     } catch (err) {
       console.error(err);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
     } finally {
       setSaving(false);
     }
@@ -362,8 +365,16 @@ export default function TaskDetailPanel() {
         <button onClick={handleDelete} className="btn-ghost text-red-500 hover:text-red-600 hover:bg-red-50" disabled={deleting}>
           {deleting ? '...' : 'Delete'}
         </button>
-        <button onClick={handleSave} className="btn-primary flex-1 justify-center" disabled={saving}>
-          {saving ? 'Saving…' : 'Save changes'}
+        <button
+          onClick={handleSave}
+          className="btn-primary flex-1 justify-center transition-colors"
+          disabled={saving}
+          style={saveStatus === 'saved' ? { background: '#059669' } : saveStatus === 'error' ? { background: '#DC2626' } : undefined}
+        >
+          {saving ? 'Saving…'
+            : saveStatus === 'saved' ? '✓ Saved'
+            : saveStatus === 'error' ? 'Save failed — retry'
+            : 'Save changes'}
         </button>
       </div>
     </div>

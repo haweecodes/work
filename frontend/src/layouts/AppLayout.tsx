@@ -8,9 +8,10 @@ import useUIStore from '../store/uiStore';
 import Sidebar from '../components/Sidebar/Sidebar';
 
 // Only loaded when user opens a task — keeps initial bundle smaller
-const TaskDetailPanel = lazy(() => import('../components/TaskDetailPanel'));
-const InviteModal     = lazy(() => import('../components/InviteModal'));
+const TaskDetailPanel  = lazy(() => import('../components/TaskDetailPanel'));
+const InviteModal      = lazy(() => import('../components/InviteModal'));
 const CreateBoardModal = lazy(() => import('../components/CreateBoardModal'));
+const SearchModal      = lazy(() => import('../components/SearchModal'));
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -21,7 +22,19 @@ export default function AppLayout() {
   const selectedTask = useBoardStore(s => s.selectedTask);
   const { showInvite, closeInvite, showCreateBoard, closeCreateBoard } = useUIStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const location = useLocation();
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(v => !v);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
 
   // Clear the task detail drawer whenever the user navigates to a different route.
   // Without this, selectedTask persists in the global store and the drawer lingers
@@ -97,11 +110,13 @@ export default function AppLayout() {
         </div>
       </div>
 
-      {/* Task detail panel — sidebar on desktop, full-screen overlay on mobile */}
+      {/* Task detail panel — sidebar on desktop, full-screen overlay on mobile
+          On channel routes ChannelView owns the right-panel slot and renders
+          TaskDetailPanel itself, so we only mount the desktop sidebar elsewhere. */}
       {selectedTask && (
         <>
-          {/* Desktop: sidebar panel */}
-          <div className="hidden lg:block w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in">
+          {/* Desktop: sidebar panel — suppressed on /channel/* (handled by ChannelView) */}
+          <div className={`w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in ${location.pathname.startsWith('/channel/') ? 'hidden' : 'hidden lg:block'}`}>
             <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
               <TaskDetailPanel />
             </Suspense>
@@ -142,6 +157,11 @@ export default function AppLayout() {
       {showCreateBoard && (
         <Suspense fallback={null}>
           <CreateBoardModal onClose={closeCreateBoard} />
+        </Suspense>
+      )}
+      {showSearch && (
+        <Suspense fallback={null}>
+          <SearchModal onClose={() => setShowSearch(false)} />
         </Suspense>
       )}
     </div>
