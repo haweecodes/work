@@ -6,11 +6,11 @@ interface NotificationState {
   notifications: Notification[];
   unreadCount: number;
   priorityAlerts: Notification[];
-  fetchNotifications: (userId: string, workspaceId?: string) => Promise<void>;
+  fetchNotifications: () => Promise<void>;
   addNotification: (notif: Notification) => void;
   addPriorityAlert: (alert: Notification) => void;
   resolveAlert: (id: string) => Promise<void>;
-  markAllRead: (userId: string) => Promise<void>;
+  markAllRead: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
 }
 
@@ -19,11 +19,8 @@ const useNotificationStore = create<NotificationState>((set) => ({
   unreadCount: 0,
   priorityAlerts: [],
 
-  fetchNotifications: async (userId: string, workspaceId?: string) => {
-    const url = workspaceId
-      ? `/api/notifications/${userId}?workspace_id=${workspaceId}`
-      : `/api/notifications/${userId}`;
-    const { data } = await client.get<Notification[]>(url);
+  fetchNotifications: async () => {
+    const { data } = await client.get<Notification[]>('/api/notifications');
     // Unresolved priority alerts → blocking banner queue
     const alerts = data.filter(n => n.type === 'priority_alert' && !n.is_resolved);
     // Everything else (incl. resolved priority alerts) → notification panel
@@ -62,7 +59,7 @@ const useNotificationStore = create<NotificationState>((set) => ({
     });
   },
 
-  markAllRead: async (_userId: string) => {
+  markAllRead: async () => {
     await client.patch('/api/notifications/read');
     set((s) => ({
       notifications: s.notifications.map(n => ({ ...n, is_read: 1 })),

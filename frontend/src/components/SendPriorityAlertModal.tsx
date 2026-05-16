@@ -3,11 +3,17 @@ import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 import useAuthStore from '../store/authStore';
 
-export default function SendPriorityAlertModal({ onClose }: { onClose: () => void }) {
+interface Props {
+  onClose: () => void;
+  initialMessage?: string;
+  initialRecipientIds?: string[];
+}
+
+export default function SendPriorityAlertModal({ onClose, initialMessage = '', initialRecipientIds = [] }: Props) {
   const { members, currentWorkspace } = useWorkspaceStore();
   const user = useAuthStore(s => s.user);
-  const [message, setMessage] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState(initialMessage);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialRecipientIds));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);

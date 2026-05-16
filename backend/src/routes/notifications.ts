@@ -8,18 +8,11 @@ const router = express.Router();
 let io: Server | undefined;
 export const setIo = (socketIo: Server) => { io = socketIo; };
 
-router.get('/:userId', authMiddleware, async (req: Request, res: Response) => {
-  const { workspace_id } = req.query;
-  if (workspace_id) {
-    const notifications = await all(
-      "SELECT * FROM notifications WHERE user_id = ? AND workspace_id = ? AND type != 'dm' ORDER BY created_at DESC LIMIT 50",
-      [req.params.userId, workspace_id]
-    );
-    return res.json(notifications);
-  }
+router.get('/', authMiddleware, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   const notifications = await all(
-    "SELECT * FROM notifications WHERE user_id = ? AND type != 'dm' ORDER BY created_at DESC LIMIT 50",
-    [req.params.userId]
+    "SELECT * FROM notifications WHERE user_id = ? AND workspace_id = ? AND type != 'dm' ORDER BY created_at DESC LIMIT 50",
+    [req.user.id, req.workspaceId]
   );
   res.json(notifications);
 });
@@ -41,7 +34,6 @@ router.patch('/read', authMiddleware, async (req: Request, res: Response) => {
 router.post('/priority', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { recipient_ids, message, workspace_id } = req.body;
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     if (!Array.isArray(recipient_ids) || recipient_ids.length === 0 || !message?.trim() || !workspace_id) {
       return res.status(400).json({ error: 'recipient_ids, message, and workspace_id required' });
     }

@@ -125,6 +125,7 @@ interface MessageActionBarProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onReactionToggle?: (messageId: string, reactions: Reaction[]) => void;
+  onAlert?: () => void;
   reactions: Reaction[];
   onReactionsChange: (reactions: Reaction[]) => void;
   onToggleReady?: (toggle: (emoji: string) => void) => void;
@@ -139,6 +140,7 @@ export default function MessageActionBar({
   onEdit,
   onDelete,
   onReactionToggle,
+  onAlert,
   reactions,
   onReactionsChange,
   onToggleReady,
@@ -209,6 +211,7 @@ export default function MessageActionBar({
           onClick={() => { setShowQuickEmoji(v => !v); setShowPicker(false); }}
           active={showQuickEmoji} />
 
+        {onAlert  && <ActionBtn label="Alert" onClick={onAlert} />}
         {onShare && <ActionBtn label="Share" onClick={() => onShare(msg)} />}
         {onTask   && <ActionBtn label="Task"  onClick={onTask} />}
         {onReply  && <ActionBtn label="Reply" onClick={() => onReply(msg)} />}

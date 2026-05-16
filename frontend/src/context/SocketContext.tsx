@@ -28,7 +28,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
-    const socket = io(SOCKET_URL);
+    const token = localStorage.getItem('fw_token');
+    const socket = io(SOCKET_URL, { auth: { token } });
     socketRef.current = socket;
 
     socket.on('connect', () => {

@@ -7,6 +7,7 @@ export interface UserPayload extends JwtPayload {
 
 declare module 'express-serve-static-core' {
   interface Request {
-    user?: UserPayload;
+    user: UserPayload;
+    workspaceId?: string;
   }
 }

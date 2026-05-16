@@ -13,6 +13,10 @@ const PRIORITY: Record<string, number> = {
   task_assigned: 1,
 };
 
+const MENTION_PRIORITY_COLORS: Record<string, string> = {
+  high: '#C47B2A', urgent: 'var(--danger)',
+};
+
 // Left-border accent per type (quiet but distinct)
 const TYPE_ACCENT: Record<string, string> = {
   task_due:       'var(--danger)',
@@ -74,6 +78,13 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     const pa = PRIORITY[a.type] ?? 0;
     const pb = PRIORITY[b.type] ?? 0;
     if (pb !== pa) return pb - pa;
+    // For two mentions, break ties by mention priority (urgent > high > normal > low)
+    if (a.type === 'mention' && b.type === 'mention') {
+      const mentionOrder: Record<string, number> = { urgent: 3, high: 2, normal: 1, low: 0 };
+      const ma = mentionOrder[a.priority ?? 'normal'] ?? 1;
+      const mb = mentionOrder[b.priority ?? 'normal'] ?? 1;
+      if (mb !== ma) return mb - ma;
+    }
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
@@ -102,7 +113,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
         </div>
         <div className="flex items-center gap-4">
           {unreadCount > 0 && user && (
-            <button onClick={() => markAllRead(user.id)}
+            <button onClick={() => markAllRead()}
               style={{ fontSize: 11, color: 'var(--muted)', textDecoration: 'none' }}
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'underline'; }}
               onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.textDecoration = 'none'; }}>
@@ -151,6 +162,11 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                     {label && (
                       <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
                         {label}
+                      </span>
+                    )}
+                    {n.type === 'mention' && n.priority && MENTION_PRIORITY_COLORS[n.priority] && (
+                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: MENTION_PRIORITY_COLORS[n.priority] }}>
+                        {n.priority}
                       </span>
                     )}
                     <span style={{ fontSize: 11, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', marginLeft: 'auto', flexShrink: 0 }}>

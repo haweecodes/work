@@ -1,103 +1,16 @@
 import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
-import { all, get, run } from '../db';
+import { all, get, run, runTransaction } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { requireChannelMember } from '../middleware/workspace';
+import { getReactionsForMessage, getSharedMessagePreview, enrichMessages } from '../lib/messageEnrich';
 
 const router = express.Router();
 let io: Server | undefined;
 
 export const setIo = (socketIo: Server) => { io = socketIo; };
 
-// ── Helper: aggregate reactions ──────────────────────────────────────────────
-
-async function getReactionsForMessage(messageId: string) {
-  const rows = await all<{ emoji: string; user_id: string }>(
-    `SELECT emoji, user_id FROM message_reactions WHERE message_id = ? ORDER BY created_at ASC`,
-    [messageId]
-  );
-  const map: Record<string, string[]> = {};
-  for (const r of rows) {
-    if (!map[r.emoji]) map[r.emoji] = [];
-    map[r.emoji].push(r.user_id);
-  }
-  return Object.entries(map).map(([emoji, users]) => ({ emoji, count: users.length, users }));
-}
-
-// ── Helper: build shared_message preview ─────────────────────────────────────
-
-async function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
-  if (!sharedMessageId) return null;
-  const sm = await get<any>(
-    `SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
-            u.name as sender_name, u.avatar_url as sender_avatar,
-            c.name as channel_name
-     FROM messages m
-     LEFT JOIN users u ON u.id = m.sender_id
-     LEFT JOIN channels c ON c.id = m.channel_id
-     WHERE m.id = ?`,
-    [sharedMessageId]
-  );
-  if (!sm) return null;
-  return {
-    id: sm.id,
-    content: sm.content,
-    created_at: sm.created_at,
-    sender_name: sm.sender_name,
-    sender_avatar: sm.sender_avatar,
-    channel_id: sm.channel_id ?? undefined,
-    channel_name: sm.channel_name ?? undefined,
-    dm_thread_id: sm.dm_thread_id ?? undefined,
-    parent_message_id: sm.parent_message_id ?? undefined,
-  };
-}
-
-// ── Helper: enrich a raw message row ─────────────────────────────────────────
-
-async function enrichMessage(m: any) {
-  const reactions = await getReactionsForMessage(m.id);
-  const replyCount = m.reply_count != null
-    ? Number(m.reply_count)
-    : m.id
-      ? (Number((await get<{ cnt: number }>(`SELECT COUNT(id)::int as cnt FROM messages WHERE parent_message_id = ?`, [m.id]))?.cnt) ?? 0)
-      : 0;
-
-  let linked_task = null;
-  if (m.task_id) {
-    const assignees = await all(
-      `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
-      [m.task_id]
-    );
-    const col = await get('SELECT title FROM columns WHERE id = ?', [m.task_column_id]);
-    linked_task = {
-      id: m.task_id, title: m.task_title, priority: m.task_priority,
-      task_key: m.task_key, task_number: m.task_number,
-      column_title: col?.title || '', assignees
-    };
-  }
-
-  const shared_message = await getSharedMessagePreview(m.shared_message_id);
-
-  return {
-    id: m.id,
-    channel_id: m.channel_id,
-    dm_thread_id: m.dm_thread_id,
-    sender_id: m.sender_id,
-    content: m.content,
-    created_at: m.created_at,
-    linked_task_id: m.linked_task_id,
-    linked_task,
-    sender: { id: m.sender_id, name: m.sender_name, avatar_url: m.sender_avatar },
-    parent_message_id: m.parent_message_id ?? null,
-    reply_count: replyCount,
-    reactions,
-    shared_message_id: m.shared_message_id ?? null,
-    shared_message,
-    is_system: m.is_system ?? 0,
-    edited_at: m.edited_at ?? null,
-  };
-}
 
 // ── Channels CRUD ─────────────────────────────────────────────────────────────
 
@@ -114,25 +27,35 @@ router.get('/:workspaceId', authMiddleware, async (req: Request, res: Response) 
 
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { workspace_id, name, is_private } = req.body;
-    if (!workspace_id || !name) {
-      return res.status(400).json({ error: 'workspace_id and name are required' });
+    const { name, is_private } = req.body;
+    const workspace_id = req.workspaceId!;
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
     }
 
     const id = uuidv4();
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const isPrivate = is_private ? 1 : 0;
-    await run('INSERT INTO channels (id, workspace_id, name, is_private, created_by) VALUES (?, ?, ?, ?, ?)',
-      [id, workspace_id, name.toLowerCase().replace(/\s+/g, '-'), isPrivate, req.user.id]);
+    const channelName = name.toLowerCase().replace(/\s+/g, '-');
 
     if (isPrivate) {
-      await run('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)', [id, req.user.id]);
+      await runTransaction([
+        { query: 'INSERT INTO channels (id, workspace_id, name, is_private, created_by) VALUES (?, ?, ?, ?, ?)',
+          params: [id, workspace_id, channelName, isPrivate, req.user.id] },
+        { query: 'INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)',
+          params: [id, req.user.id] },
+      ]);
     } else {
-      const members = await all('SELECT user_id FROM workspace_members WHERE workspace_id = ?', [workspace_id]);
-      for (const m of members as any[]) {
-        await run('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [id, m.user_id]);
-      }
+      const members = await all<{ user_id: string }>('SELECT user_id FROM workspace_members WHERE workspace_id = ?', [workspace_id]);
+      const vals = members.map(() => '(?, ?)').join(', ');
+      await runTransaction([
+        { query: 'INSERT INTO channels (id, workspace_id, name, is_private, created_by) VALUES (?, ?, ?, ?, ?)',
+          params: [id, workspace_id, channelName, isPrivate, req.user.id] },
+        ...(members.length > 0 ? [{
+          query: `INSERT INTO channel_members (channel_id, user_id) VALUES ${vals} ON CONFLICT DO NOTHING`,
+          params: members.flatMap(m => [id, m.user_id]),
+        }] : []),
+      ]);
     }
 
     const channel = await get('SELECT * FROM channels WHERE id = ?', [id]);
@@ -141,10 +64,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       if (isPrivate) {
         io.to(`user:${req.user.id}`).emit('channel_created', channel);
       } else {
-        const members = await all('SELECT user_id FROM workspace_members WHERE workspace_id = ?', [workspace_id]) as any[];
-        members.forEach((m: any) => {
-          io!.to(`user:${m.user_id}`).emit('channel_created', channel);
-        });
+        const members = await all<{ user_id: string }>('SELECT user_id FROM workspace_members WHERE workspace_id = ?', [workspace_id]);
+        members.forEach(m => io!.to(`user:${m.user_id}`).emit('channel_created', channel));
       }
     }
 
@@ -156,8 +77,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
 router.patch('/:channelId/archive', authMiddleware, async (req: Request, res: Response) => {
   try {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-    const channel = await get('SELECT * FROM channels WHERE id = ?', [req.params.channelId]) as any;
+    const channel = await get('SELECT * FROM channels WHERE id = ? AND workspace_id = ?', [req.params.channelId, req.workspaceId]) as any;
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     const workspace = await get('SELECT owner_id FROM workspaces WHERE id = ?', [channel.workspace_id]) as any;
@@ -196,16 +116,15 @@ router.get('/messages/:channelId', authMiddleware, requireChannelMember('channel
     [req.params.channelId]
   );
 
-  res.json(await Promise.all(messages.map(enrichMessage)));
+  res.json(await enrichMessages(messages));
 });
 
 router.post('/messages', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { channel_id, content, linked_task_id, parent_message_id } = req.body;
+    const { channel_id, content, linked_task_id, parent_message_id, importance, mention_priorities } = req.body;
     if (!channel_id || !content) {
       return res.status(400).json({ error: 'channel_id and content required' });
     }
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     // Guard: sender must be a member of the target channel
     const isMember = await get(
@@ -232,36 +151,42 @@ router.post('/messages', authMiddleware, async (req: Request, res: Response) => 
     }
 
     const id = uuidv4();
-    await run('INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, channel_id, req.user.id, content, linked_task_id || null, parent_message_id || null]);
+    const importanceVal = importance || 'normal';
+    const mentionPrioritiesJson = mention_priorities ? JSON.stringify(mention_priorities) : null;
+    await run(
+      'INSERT INTO messages (id, channel_id, sender_id, content, linked_task_id, parent_message_id, importance, mention_priorities) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, channel_id, req.user.id, content, linked_task_id || null, parent_message_id || null, importanceVal, mentionPrioritiesJson]
+    );
 
     const sender = await get('SELECT id, name, avatar_url FROM users WHERE id = ?', [req.user.id]);
     const message = {
       id, channel_id, sender_id: req.user.id, content, linked_task_id: linked_task_id || null,
       created_at: new Date().toISOString(), sender, linked_task: null,
       parent_message_id: parent_message_id || null,
-      reply_count: 0, reactions: [], shared_message_id: null, shared_message: null
+      reply_count: 0, reactions: [], shared_message_id: null, shared_message: null,
+      importance: importanceVal,
+      mention_priorities: mention_priorities ?? [],
     };
 
-    // Mentions
-    const mentions = [...content.matchAll(/@(\w+)/g)].map((m: any) => m[1]);
-    if (mentions.length > 0) {
+    // Mentions — match full member names (handles multi-word names like "John Smith")
+    if (content.includes('@')) {
       const channel = await get('SELECT workspace_id FROM channels WHERE id = ?', [channel_id]);
-      for (const username of mentions) {
-        const mentionedUser = await get(
-          `SELECT u.id FROM users u JOIN workspace_members wm ON u.id = wm.user_id
-           WHERE wm.workspace_id = ? AND u.name = ?`,
-          [channel?.workspace_id, username]
+      const workspaceMembers = await all<{ id: string; name: string }>(
+        `SELECT u.id, u.name FROM users u JOIN workspace_members wm ON u.id = wm.user_id WHERE wm.workspace_id = ?`,
+        [channel?.workspace_id]
+      );
+      for (const member of workspaceMembers) {
+        if (member.id === req.user?.id) continue;
+        if (!content.includes(`@${member.name}`)) continue;
+        const notifId = uuidv4();
+        const notifMsg = `${req.user?.name || 'A user'} mentioned you: "${content.slice(0, 80)}"`;
+        const mentionPriority = (mention_priorities as Array<{name: string; userId: string; priority: string}> | undefined)
+          ?.find(mp => mp.name.toLowerCase() === member.name.toLowerCase())?.priority ?? 'normal';
+        await run(
+          'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message, priority) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [notifId, member.id, 'mention', channel_id, 'channel', notifMsg, mentionPriority]
         );
-        if (mentionedUser && mentionedUser.id !== req.user?.id) {
-          const notifId = uuidv4();
-          const notifMsg = `${req.user?.name || 'A user'} mentioned you: "${content.slice(0, 80)}"`;
-          await run(
-            'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
-            [notifId, mentionedUser.id, 'mention', channel_id, 'channel', notifMsg]
-          );
-          if (io) io.to(`user:${mentionedUser.id}`).emit('notification', { id: notifId, type: 'mention', message: notifMsg, reference_id: channel_id, reference_type: 'channel' });
-        }
+        if (io) io.to(`user:${member.id}`).emit('notification', { id: notifId, type: 'mention', message: notifMsg, reference_id: channel_id, reference_type: 'channel', priority: mentionPriority });
       }
     }
 
@@ -333,14 +258,13 @@ router.get('/messages/:channelId/thread/:messageId', authMiddleware, requireChan
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
 
-  res.json(await Promise.all(all_msgs.map(enrichMessage)));
+  res.json(await enrichMessages(all_msgs));
 });
 
 // ── Share a message ───────────────────────────────────────────────────────────
 
 router.post('/messages/:messageId/share', authMiddleware, async (req: Request, res: Response) => {
   try {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     const { target_channel_id, target_dm_thread_id, comment } = req.body;
     if (!target_channel_id && !target_dm_thread_id) {
       return res.status(400).json({ error: 'target_channel_id or target_dm_thread_id required' });
@@ -390,6 +314,21 @@ router.post('/messages/:messageId/share', authMiddleware, async (req: Request, r
           }
         }
       }
+    }
+
+    // Verify user is a member of the destination before writing
+    if (target_channel_id) {
+      const inTarget = await get(
+        'SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?',
+        [target_channel_id, req.user.id]
+      );
+      if (!inTarget) return res.status(403).json({ error: 'You are not a member of the target channel' });
+    } else if (target_dm_thread_id) {
+      const inTarget = await get(
+        'SELECT 1 FROM dm_participants WHERE thread_id = ? AND user_id = ?',
+        [target_dm_thread_id, req.user.id]
+      );
+      if (!inTarget) return res.status(403).json({ error: 'You are not a participant in the target conversation' });
     }
 
     const id = uuidv4();
@@ -445,7 +384,6 @@ router.patch('/messages/:id', authMiddleware, async (req: Request, res: Response
   try {
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'content required' });
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const msg = await get<any>('SELECT * FROM messages WHERE id = ?', [req.params.id]);
     if (!msg) return res.status(404).json({ error: 'Message not found' });
@@ -469,7 +407,6 @@ router.patch('/messages/:id', authMiddleware, async (req: Request, res: Response
 
 router.delete('/messages/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const msg = await get<any>('SELECT * FROM messages WHERE id = ?', [req.params.id]);
     if (!msg) return res.status(404).json({ error: 'Message not found' });
@@ -498,7 +435,6 @@ router.get('/messages/:messageId/reactions', authMiddleware, async (req: Request
 
 router.post('/messages/:messageId/reactions', authMiddleware, async (req: Request, res: Response) => {
   try {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     const messageId = String(req.params.messageId);
     const emoji = String(req.body.emoji ?? '');
     if (!emoji) return res.status(400).json({ error: 'emoji is required' });
@@ -508,6 +444,21 @@ router.post('/messages/:messageId/reactions', authMiddleware, async (req: Reques
       [messageId]
     );
     if (!msg) return res.status(404).json({ error: 'Message not found' });
+
+    // Verify user belongs to the room containing this message
+    if (msg.channel_id) {
+      const isMember = await get(
+        'SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?',
+        [msg.channel_id, req.user.id]
+      );
+      if (!isMember) return res.status(403).json({ error: 'You are not a member of this channel' });
+    } else if (msg.dm_thread_id) {
+      const isParticipant = await get(
+        'SELECT 1 FROM dm_participants WHERE thread_id = ? AND user_id = ?',
+        [msg.dm_thread_id, req.user.id]
+      );
+      if (!isParticipant) return res.status(403).json({ error: 'You are not a participant in this conversation' });
+    }
 
     const existing = await get(
       'SELECT 1 FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?',

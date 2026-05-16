@@ -1,6 +1,8 @@
 import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { all, get, run } from '../db';
+import { all, get, run, runTransaction } from '../db';
+
+const ph = (arr: any[]) => arr.map(() => '?').join(', ');
 import { authMiddleware } from '../middleware/auth';
 import { requireWorkspaceMember } from '../middleware/workspace';
 
@@ -16,13 +18,13 @@ router.get('/:workspaceId', authMiddleware, requireWorkspaceMember('workspaceId'
 
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { workspace_id, name, columns } = req.body;
-    if (!workspace_id || !name) {
-      return res.status(400).json({ error: 'workspace_id and name required' });
+    const { name, columns } = req.body;
+    const workspace_id = req.workspaceId!;
+    if (!name) {
+      return res.status(400).json({ error: 'name required' });
     }
 
     const id = uuidv4();
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     let baseKey = name.split(/\s+/).map((w: string) => w[0]?.toUpperCase()).join('').substring(0, 5).replace(/[^A-Z]/g, '');
     if (!baseKey) baseKey = 'BRD';
@@ -36,16 +38,19 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       counter++;
     }
 
-    await run('INSERT INTO boards (id, workspace_id, name, project_key) VALUES (?, ?, ?, ?)',
-      [id, workspace_id, name, project_key]);
-
     const cols: string[] = (Array.isArray(columns) && columns.length > 0)
       ? columns
       : ['To Do', 'In Progress', 'In Review', 'Done'];
-    for (let i = 0; i < cols.length; i++) {
-      await run('INSERT INTO columns (id, board_id, title, position) VALUES (?, ?, ?, ?)',
-        [uuidv4(), id, cols[i], i]);
-    }
+
+    const colVals = cols.map(() => '(?, ?, ?, ?)').join(', ');
+    const colParams = cols.flatMap((title, i) => [uuidv4(), id, title, i]);
+
+    await runTransaction([
+      { query: 'INSERT INTO boards (id, workspace_id, name, project_key) VALUES (?, ?, ?, ?)',
+        params: [id, workspace_id, name, project_key] },
+      { query: `INSERT INTO columns (id, board_id, title, position) VALUES ${colVals}`,
+        params: colParams },
+    ]);
 
     const board = await get('SELECT * FROM boards WHERE id = ?', [id]);
     res.status(201).json(board);
@@ -58,54 +63,52 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+    const board = await get('SELECT id FROM boards WHERE id = ? AND workspace_id = ?', [req.params.id, req.workspaceId]);
+    if (!board) return res.status(404).json({ error: 'Board not found' });
     await run('UPDATE boards SET name = ? WHERE id = ?', [name.trim(), req.params.id]);
-    const board = await get('SELECT * FROM boards WHERE id = ?', [req.params.id]);
-    res.json(board);
+    res.json(await get('SELECT * FROM boards WHERE id = ?', [req.params.id]));
   } catch (err: any) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 router.get('/:boardId/columns', authMiddleware, async (req: Request, res: Response) => {
-  // Guard: user must be a member of the board's workspace
-  const board = await get<{ workspace_id: string }>(
-    'SELECT workspace_id FROM boards WHERE id = ?',
-    [req.params.boardId]
-  );
+  const board = await get('SELECT id FROM boards WHERE id = ? AND workspace_id = ?', [req.params.boardId, req.workspaceId]);
   if (!board) return res.status(404).json({ error: 'Board not found' });
-  const isMember = await get(
-    'SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
-    [board.workspace_id, req.user?.id]
-  );
-  if (!isMember) return res.status(403).json({ error: 'You are not a member of this workspace' });
 
-  const columns = await all(
-    'SELECT * FROM columns WHERE board_id = ? ORDER BY position ASC',
-    [req.params.boardId]
-  );
+  const columns = await all('SELECT * FROM columns WHERE board_id = ? ORDER BY position ASC', [req.params.boardId]);
+  const tasks   = await all('SELECT * FROM tasks WHERE board_id = ? ORDER BY position ASC', [req.params.boardId]);
 
-  const enriched = await Promise.all(columns.map(async col => {
-    const tasks = await all(
-      'SELECT * FROM tasks WHERE column_id = ? ORDER BY position ASC',
-      [col.id]
-    );
-    const tasksWithAssignees = await Promise.all(tasks.map(async task => {
-      const assignees = await all(
-        `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
-        [task.id]
-      );
-      return { ...task, assignees };
-    }));
-    return { ...col, tasks: tasksWithAssignees };
-  }));
+  const taskIds = tasks.map((t: any) => t.id);
+  const allAssignees = taskIds.length > 0
+    ? await all<any>(
+        `SELECT ta.task_id, u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id IN (${ph(taskIds)})`,
+        taskIds
+      )
+    : [];
 
-  res.json(enriched);
+  const assigneesByTask: Record<string, any[]> = {};
+  for (const a of allAssignees) {
+    if (!assigneesByTask[a.task_id]) assigneesByTask[a.task_id] = [];
+    assigneesByTask[a.task_id].push({ id: a.id, name: a.name, avatar_url: a.avatar_url });
+  }
+
+  const tasksWithAssignees = tasks.map((t: any) => ({ ...t, assignees: assigneesByTask[t.id] ?? [] }));
+  const tasksByCol: Record<string, any[]> = {};
+  for (const t of tasksWithAssignees) {
+    if (!tasksByCol[t.column_id]) tasksByCol[t.column_id] = [];
+    tasksByCol[t.column_id].push(t);
+  }
+
+  res.json(columns.map((col: any) => ({ ...col, tasks: tasksByCol[col.id] ?? [] })));
 });
 
 router.post('/:boardId/columns', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'title required' });
+    const board = await get('SELECT id FROM boards WHERE id = ? AND workspace_id = ?', [req.params.boardId, req.workspaceId]);
+    if (!board) return res.status(404).json({ error: 'Board not found' });
     const existing = await all('SELECT id FROM columns WHERE board_id = ?', [req.params.boardId]);
     const id = uuidv4();
     await run('INSERT INTO columns (id, board_id, title, position) VALUES (?, ?, ?, ?)',

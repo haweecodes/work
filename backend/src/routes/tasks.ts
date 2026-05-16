@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
-import { all, get, run } from '../db';
+import { all, get, run, returning } from '../db';
 import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
@@ -10,7 +10,7 @@ let io: Server | undefined;
 export const setIo = (socketIo: Server) => { io = socketIo; };
 
 async function sendAssignmentNotification(
-  userId: string, actorId: string, actorName: string,
+  userId: string, _actorId: string, actorName: string,
   taskId: string, taskTitle: string, _boardId: string,
   type: 'task_assigned' | 'task_unassigned'
 ) {
@@ -33,14 +33,18 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     if (!board_id || !column_id || !title) {
       return res.status(400).json({ error: 'board_id, column_id, title required' });
     }
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const board = await get('SELECT id, project_key FROM boards WHERE id = ?', [board_id]);
+    const board = await get(
+      'SELECT id, project_key FROM boards WHERE id = ? AND workspace_id = ?',
+      [board_id, req.workspaceId]
+    );
     if (!board) return res.status(404).json({ error: 'Board not found' });
 
-    await run('UPDATE boards SET task_sequence = task_sequence + 1 WHERE id = ?', [board_id]);
-    const updatedBoard = await get<{ task_sequence: number }>('SELECT task_sequence FROM boards WHERE id = ?', [board_id]);
-    const task_number = Number(updatedBoard!.task_sequence);
+    const [{ task_sequence }] = await returning<{ task_sequence: number }>(
+      'UPDATE boards SET task_sequence = task_sequence + 1 WHERE id = ? RETURNING task_sequence',
+      [board_id]
+    );
+    const task_number = Number(task_sequence);
     const task_key = `${board.project_key}-${task_number}`;
 
     const existing = await all('SELECT id FROM tasks WHERE column_id = ?', [column_id]);
@@ -83,8 +87,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
 router.get('/detail/:id', authMiddleware, async (req: Request, res: Response) => {
   const task = await get<{ id: string; board_id: string; task_key: string; title: string }>(
-    'SELECT id, board_id, task_key, title FROM tasks WHERE id = ?',
-    [req.params.id]
+    'SELECT t.id, t.board_id, t.task_key, t.title FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
+    [req.params.id, req.workspaceId]
   );
   if (!task) return res.status(404).json({ error: 'Task not found' });
   res.json(task);
@@ -93,7 +97,10 @@ router.get('/detail/:id', authMiddleware, async (req: Request, res: Response) =>
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { title, description, priority, due_date, assignee_ids, column_id, parent_task_id } = req.body;
-    const task = await get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    const task = await get(
+      'SELECT t.* FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
+      [req.params.id, req.workspaceId]
+    );
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
     let newPosition = task.position;
@@ -157,7 +164,10 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 router.patch('/:id/move', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { column_id, position } = req.body;
-    const task = await get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    const task = await get(
+      'SELECT t.* FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
+      [req.params.id, req.workspaceId]
+    );
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
     await run('UPDATE tasks SET column_id = ?, position = ? WHERE id = ?',
@@ -177,14 +187,11 @@ router.patch('/:id/move', authMiddleware, async (req: Request, res: Response) =>
 router.get('/resolve/:taskKey', authMiddleware, async (req: Request, res: Response) => {
   try {
     const taskKey = String(req.params.taskKey).toUpperCase();
-    const workspaceId = req.query.workspace_id;
-    if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
-
     const task = await get(
       `SELECT t.id as task_id, t.board_id, b.workspace_id
        FROM tasks t JOIN boards b ON t.board_id = b.id
        WHERE UPPER(t.task_key) = ? AND b.workspace_id = ?`,
-      [taskKey, workspaceId]
+      [taskKey, req.workspaceId]
     );
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
@@ -201,10 +208,11 @@ router.get('/task/:id', authMiddleware, async (req: Request, res: Response) => {
         m.parent_message_id as linked_parent_message_id,
         m.dm_thread_id as linked_dm_thread_id
        FROM tasks t
+       JOIN boards b ON t.board_id = b.id
        LEFT JOIN columns c ON t.column_id = c.id
        LEFT JOIN messages m ON t.linked_message_id = m.id
-       WHERE t.id = ?`,
-      [req.params.id]
+       WHERE t.id = ? AND b.workspace_id = ?`,
+      [req.params.id, req.workspaceId]
     );
     if (!task) return res.status(404).json({ error: 'Task not found' });
     const assignees = await all(
@@ -219,7 +227,10 @@ router.get('/task/:id', authMiddleware, async (req: Request, res: Response) => {
 
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const task = await get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    const task = await get(
+      'SELECT t.* FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
+      [req.params.id, req.workspaceId]
+    );
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
     await run('DELETE FROM task_assignees WHERE task_id = ?', [req.params.id]);
@@ -234,6 +245,9 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 });
 
 router.get('/:boardId', authMiddleware, async (req: Request, res: Response) => {
+  const board = await get('SELECT 1 FROM boards WHERE id = ? AND workspace_id = ?', [req.params.boardId, req.workspaceId]);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+
   const tasks = await all(
     'SELECT t.*, c.title as column_title, m.channel_id as linked_channel_id, m.parent_message_id as linked_parent_message_id, m.dm_thread_id as linked_dm_thread_id FROM tasks t LEFT JOIN columns c ON t.column_id = c.id LEFT JOIN messages m ON t.linked_message_id = m.id WHERE t.board_id = ? ORDER BY t.position ASC',
     [req.params.boardId]

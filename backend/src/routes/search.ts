@@ -11,7 +11,6 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 
     if (!q || q.length < 2) return res.json({ messages: [], tasks: [] });
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const pattern = `%${q}%`;
     const userId = req.user.id;

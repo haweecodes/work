@@ -69,7 +69,7 @@ export default function AppLayout() {
   }, []);
 
   useEffect(() => {
-    if (user && currentWorkspace) fetchNotifications(user.id, currentWorkspace.id);
+    if (user && currentWorkspace) fetchNotifications();
   }, [user?.id, currentWorkspace?.id]);
 
   return (

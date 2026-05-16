@@ -102,6 +102,12 @@ export interface SharedMessagePreview {
   parent_message_id?: string;
 }
 
+export interface MentionPriority {
+  userId: string;
+  name: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+}
+
 export interface Message {
   id: string;
   channel_id?: string;
@@ -121,6 +127,8 @@ export interface Message {
   is_system?: number;
   edited_at?: string | null;
   deleted?: boolean;
+  importance?: string;
+  mention_priorities?: MentionPriority[];
 }
 
 export interface Notification {
@@ -135,5 +143,6 @@ export interface Notification {
   sender_name?: string;
   sender_avatar?: string;
   workspace_id?: string;
+  priority?: string;
   created_at: string;
 }

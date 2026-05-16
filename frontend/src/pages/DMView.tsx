@@ -9,7 +9,6 @@ import MessageList from '../components/MessageList';
 import MessageComposer from '../components/MessageComposer';
 import PanelOverlay from '../components/PanelOverlay';
 import TaskTray from '../components/TaskTray';
-import SendPriorityAlertModal from '../components/SendPriorityAlertModal';
 import { MessageListSkeleton } from '../components/Skeleton';
 import type { Message, Task } from '../types';
 
@@ -46,13 +45,20 @@ export default function DMView() {
     highlightId: searchParams.get('highlight'),
   });
 
+  // ── Composer meta state ───────────────────────────────────────────────────
+  const [importance, setImportance] = useState('normal');
+
+  const handleSubmit = (e: React.SyntheticEvent) => {
+    handleSend(e, { importance });
+    setImportance('normal');
+  };
+
   // ── DM-specific state ─────────────────────────────────────────────────────
   const [shareMsg, setShareMsg]           = useState<Message | null>(null);
   const [createTaskMsg, setCreateTaskMsg] = useState<Message | null>(null);
   const [createTaskPrefill, setCreateTaskPrefill] = useState<{ title?: string; priority?: string; due_date?: string } | undefined>(undefined);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showTaskPanel, setShowTaskPanel] = useState(false);
-  const [showSendAlert, setShowSendAlert] = useState(false);
 
   const myTaskCount = columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0);
 
@@ -110,12 +116,6 @@ export default function DMView() {
             >
               Tasks{myTaskCount > 0 ? ` · ${myTaskCount}` : ''}
             </button>
-            <button onClick={() => setShowSendAlert(true)}
-              style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)', textDecoration: 'none', background: 'none' }}
-              onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-              onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>
-              Alert
-            </button>
           </div>
         </div>
 
@@ -149,8 +149,9 @@ export default function DMView() {
 
         {/* Compose */}
         <div className="flex-shrink-0" style={{ padding: '18px 40px 26px', borderTop: '1px solid var(--rule)' }}>
-          <MessageComposer value={content} onChange={handleContentChange} onSubmit={handleSend}
-            placeholder={`Message ${title}…`} members={members} />
+          <MessageComposer value={content} onChange={handleContentChange} onSubmit={handleSubmit}
+            placeholder={`Message ${title}…`} members={members}
+            importance={importance} onImportanceChange={setImportance} />
         </div>
       </div>
 
@@ -186,7 +187,6 @@ export default function DMView() {
             boardId={activeBoard.id} onClose={handleCreateTask} />
         </Suspense>
       )}
-      {showSendAlert && <SendPriorityAlertModal onClose={() => setShowSendAlert(false)} />}
     </div>
   );
 }

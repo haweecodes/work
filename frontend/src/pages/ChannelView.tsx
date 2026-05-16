@@ -10,9 +10,8 @@ import MessageList from '../components/MessageList';
 import MessageComposer from '../components/MessageComposer';
 import PanelOverlay from '../components/PanelOverlay';
 import TaskTray from '../components/TaskTray';
-import SendPriorityAlertModal from '../components/SendPriorityAlertModal';
 import { MessageListSkeleton } from '../components/Skeleton';
-import type { Message, Task } from '../types';
+import type { Message, MentionPriority, Task } from '../types';
 
 // ── Pipeline mock data (no backend integration yet) ───────────────────────────
 interface PipelineDeal {
@@ -89,7 +88,7 @@ const ShareModal      = lazy(() => import('../components/ShareModal'));
 
 export default function ChannelView() {
   const { channelId } = useParams<{ channelId: string }>();
-  const { channels, members } = useWorkspaceStore();
+  const { channels, members, currentWorkspace } = useWorkspaceStore();
   const { activeThreadId, setActiveThreadId, clearThreadUnread } = useUIStore();
   const clearChannelUnread = useUIStore(s => s.clearChannelUnread);
   const { user } = useAuthStore();
@@ -112,6 +111,40 @@ export default function ChannelView() {
     highlightId: searchParams.get('highlight'),
   });
 
+  // ── Composer meta state ───────────────────────────────────────────────────
+  const [importance, setImportance] = useState('normal');
+  const [mentionPriorities, setMentionPriorities] = useState<MentionPriority[]>([]);
+  const [priorityAlertRecipients, setPriorityAlertRecipients] = useState<Array<{ userId: string; name: string }>>([]);
+
+  const handleMentionPrioritySet = (name: string, userId: string, priority: string) => {
+    setMentionPriorities(prev => [
+      ...prev.filter(mp => mp.userId !== userId),
+      { userId, name, priority: priority as MentionPriority['priority'] },
+    ]);
+  };
+
+  const handlePriorityAlertMentionAdd = (userId: string, name: string) => {
+    setPriorityAlertRecipients(prev => [
+      ...prev.filter(r => r.userId !== userId),
+      { userId, name },
+    ]);
+  };
+
+  const handleSubmit = (e: React.SyntheticEvent) => {
+    const alertText = content.trim();
+    handleSend(e, { importance, mentionPriorities });
+    if (priorityAlertRecipients.length > 0 && alertText) {
+      client.post('/api/notifications/priority', {
+        recipient_ids: priorityAlertRecipients.map(r => r.userId),
+        message: alertText,
+        workspace_id: currentWorkspace?.id,
+      }).catch(() => {});
+    }
+    setImportance('normal');
+    setMentionPriorities([]);
+    setPriorityAlertRecipients([]);
+  };
+
   // ── Channel-specific state ────────────────────────────────────────────────
   const [shareMsg, setShareMsg]       = useState<Message | null>(null);
   const [createTaskMsg, setCreateTaskMsg] = useState<Message | null>(null);
@@ -120,7 +153,6 @@ export default function ChannelView() {
   const [rightTab, setRightTab]       = useState<'tasks' | 'pipeline'>('tasks');
   const [pipeline, setPipeline]       = useState<PipelineDeal[]>(INITIAL_PIPELINE);
   const [showTaskPanel, setShowTaskPanel] = useState(false);
-  const [showSendAlert, setShowSendAlert] = useState(false);
 
   const activeBoard  = boards[0];
   const myTaskCount  = columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0);
@@ -251,12 +283,6 @@ export default function ChannelView() {
                 </button>
               );
             })}
-            <button onClick={() => setShowSendAlert(true)}
-              style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)', textDecoration: 'none' }}
-              onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-              onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>
-              Alert
-            </button>
             {canArchive && (
               <button onClick={handleArchive}
                 style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}
@@ -301,8 +327,12 @@ export default function ChannelView() {
               This channel is archived — read-only.
             </p>
           ) : (
-            <MessageComposer value={content} onChange={handleContentChange} onSubmit={handleSend}
-              placeholder={`Message #${channel?.name || ''}…`} members={members} />
+            <MessageComposer value={content} onChange={handleContentChange} onSubmit={handleSubmit}
+              placeholder={`Message #${channel?.name || ''}…`} members={members}
+              importance={importance} onImportanceChange={setImportance}
+              onMentionPrioritySet={handleMentionPrioritySet}
+              onPriorityAlertMentionAdd={handlePriorityAlertMentionAdd}
+              priorityAlertRecipients={priorityAlertRecipients} />
           )}
         </div>
       </div>
@@ -322,7 +352,6 @@ export default function ChannelView() {
           <ShareModal message={shareMsg} onClose={() => setShareMsg(null)} />
         </Suspense>
       )}
-      {showSendAlert && <SendPriorityAlertModal onClose={() => setShowSendAlert(false)} />}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run } from '../db';
+import { enrichMessages } from '../lib/messageEnrich';
 import { authMiddleware } from '../middleware/auth';
 import { requireDmParticipant } from '../middleware/workspace';
 
@@ -9,86 +10,6 @@ const router = express.Router();
 let io: Server | undefined;
 
 export const setIo = (socketIo: Server) => { io = socketIo; };
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function getReactionsForMessage(messageId: string) {
-  const rows = await all<{ emoji: string; user_id: string }>(
-    `SELECT emoji, user_id FROM message_reactions WHERE message_id = ? ORDER BY created_at ASC`,
-    [messageId]
-  );
-  const map: Record<string, string[]> = {};
-  for (const r of rows) {
-    if (!map[r.emoji]) map[r.emoji] = [];
-    map[r.emoji].push(r.user_id);
-  }
-  return Object.entries(map).map(([emoji, users]) => ({ emoji, count: users.length, users }));
-}
-
-async function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
-  if (!sharedMessageId) return null;
-  const sm = await get<any>(
-    `SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
-            u.name as sender_name, u.avatar_url as sender_avatar,
-            c.name as channel_name
-     FROM messages m
-     LEFT JOIN users u ON u.id = m.sender_id
-     LEFT JOIN channels c ON c.id = m.channel_id
-     WHERE m.id = ?`,
-    [sharedMessageId]
-  );
-  if (!sm) return null;
-  return {
-    id: sm.id,
-    content: sm.content,
-    created_at: sm.created_at,
-    sender_name: sm.sender_name,
-    sender_avatar: sm.sender_avatar,
-    channel_id: sm.channel_id ?? undefined,
-    channel_name: sm.channel_name ?? undefined,
-    dm_thread_id: sm.dm_thread_id ?? undefined,
-    parent_message_id: sm.parent_message_id ?? undefined,
-  };
-}
-
-async function enrichDmMessage(m: any) {
-  const reactions = await getReactionsForMessage(m.id);
-  const replyCount = m.reply_count != null
-    ? Number(m.reply_count)
-    : (Number((await get<{ cnt: number }>(`SELECT COUNT(id)::int as cnt FROM messages WHERE parent_message_id = ?`, [m.id]))?.cnt) ?? 0);
-  const shared_message = await getSharedMessagePreview(m.shared_message_id);
-
-  let linked_task = null;
-  if (m.task_id) {
-    const assignees = await all(
-      `SELECT u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = ?`,
-      [m.task_id]
-    );
-    const col = await get('SELECT title FROM columns WHERE id = ?', [m.task_column_id]);
-    linked_task = {
-      id: m.task_id, title: m.task_title, priority: m.task_priority,
-      task_key: m.task_key, task_number: m.task_number,
-      column_title: col?.title || '', assignees
-    };
-  }
-
-  return {
-    id: m.id,
-    dm_thread_id: m.dm_thread_id,
-    sender_id: m.sender_id,
-    content: m.content,
-    linked_task_id: m.linked_task_id,
-    linked_task,
-    created_at: m.created_at,
-    sender: { id: m.sender_id, name: m.sender_name, avatar_url: m.sender_avatar },
-    parent_message_id: m.parent_message_id ?? null,
-    reply_count: replyCount,
-    reactions,
-    shared_message_id: m.shared_message_id ?? null,
-    shared_message,
-    is_system: m.is_system ?? 0,
-  };
-}
 
 // ── DM Threads ────────────────────────────────────────────────────────────────
 
@@ -117,11 +38,18 @@ router.get('/threads/:workspaceId', authMiddleware, async (req: Request, res: Re
 
 router.post('/threads', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { workspace_id, other_user_id } = req.body;
-    if (!workspace_id || !other_user_id) {
-      return res.status(400).json({ error: 'workspace_id and other_user_id required' });
+    const { other_user_id } = req.body;
+    const workspace_id = req.workspaceId!;
+    if (!other_user_id) {
+      return res.status(400).json({ error: 'other_user_id required' });
     }
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Verify the other user is also a workspace member before creating a thread
+    const otherMember = await get(
+      'SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
+      [workspace_id, other_user_id]
+    );
+    if (!otherMember) return res.status(403).json({ error: 'That user is not a member of this workspace' });
 
     const existing = await get(
       `SELECT dt.id FROM dm_threads dt
@@ -167,14 +95,13 @@ router.get('/:threadId', authMiddleware, requireDmParticipant('threadId'), async
      ORDER BY m.created_at ASC LIMIT 200`,
     [req.params.threadId]
   );
-  res.json(await Promise.all(messages.map(enrichDmMessage)));
+  res.json(await enrichMessages(messages));
 });
 
 router.post('/:threadId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   try {
-    const { content, linked_task_id, parent_message_id } = req.body;
+    const { content, linked_task_id, parent_message_id, importance } = req.body;
     if (!content) return res.status(400).json({ error: 'content required' });
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     if (parent_message_id) {
       const parentMsg = await get<{ parent_message_id: string | null }>(
@@ -191,9 +118,10 @@ router.post('/:threadId', authMiddleware, requireDmParticipant('threadId'), asyn
     }
 
     const id = uuidv4();
+    const importanceVal = importance || 'normal';
     await run(
-      'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, req.params.threadId, req.user.id, content, linked_task_id || null, parent_message_id || null]
+      'INSERT INTO messages (id, dm_thread_id, sender_id, content, linked_task_id, parent_message_id, importance) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, req.params.threadId, req.user.id, content, linked_task_id || null, parent_message_id || null, importanceVal]
     );
 
     const sender = await get('SELECT id, name, avatar_url FROM users WHERE id = ?', [req.user.id]);
@@ -202,6 +130,7 @@ router.post('/:threadId', authMiddleware, requireDmParticipant('threadId'), asyn
       linked_task_id: linked_task_id || null, created_at: new Date().toISOString(), sender,
       parent_message_id: parent_message_id || null, reply_count: 0,
       reactions: [], shared_message_id: null, shared_message: null,
+      importance: importanceVal,
     };
 
     const participants = await all('SELECT user_id FROM dm_participants WHERE thread_id = ?', [req.params.threadId]);
@@ -275,7 +204,7 @@ router.get('/:threadId/thread/:messageId', authMiddleware, requireDmParticipant(
   const all_msgs = [...depth1, ...depth2].sort((a: any, b: any) =>
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
-  res.json(await Promise.all(all_msgs.map(enrichDmMessage)));
+  res.json(await enrichMessages(all_msgs));
 });
 
 export default router;

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow, format, addDays } from 'date-fns';
 import useAuthStore from '../store/authStore';
@@ -6,6 +6,7 @@ import useUIStore from '../store/uiStore';
 import useBoardStore from '../store/boardStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import MessageActionBar from './MessageActionBar';
+import SendPriorityAlertModal from './SendPriorityAlertModal';
 import client from '../api/client';
 import type { Message, Reaction, Task, Member } from '../types';
 
@@ -324,7 +325,7 @@ interface MessageBubbleProps {
   isGroupEnd?: boolean;
 }
 
-export default function MessageBubble({
+function MessageBubble({
   msg,
   onCreateTask,
   onTaskLinked,
@@ -345,6 +346,14 @@ export default function MessageBubble({
   const { boards, columns, fetchColumns, selectedTask, setSelectedTask, updateTaskInColumn } = useBoardStore();
   const { members } = useWorkspaceStore();
 
+  const mentionSplitRe = useMemo(() => {
+    const sorted = [...members]
+      .sort((a, b) => b.name.length - a.name.length)
+      .map(m => m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const alt = sorted.length > 0 ? `@(?:${sorted.join('|')})` : '@\\w+';
+    return new RegExp(`(\\*\\*[^*]+\\*\\*|${alt})`, 'gi');
+  }, [members]);
+
   const [reactions, setReactions] = useState<Reaction[]>(msg.reactions ?? []);
   const [aiDismissed, setAiDismissed] = useState(() => getSuggestionDismissed(msg.id));
   const [showInlineForm, setShowInlineForm] = useState(false);
@@ -353,6 +362,7 @@ export default function MessageBubble({
   const [editContent, setEditContent] = useState(msg.content);
   const [editSaving, setEditSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showAlertModal, setShowAlertModal] = useState(false);
   const [deleteInFlight, setDeleteInFlight] = useState(false);
   const [quickCreatedTask, setQuickCreatedTask] = useState<Task | null>(null);
   const toggleRef = useRef<(emoji: string) => void>(() => {});
@@ -452,14 +462,21 @@ export default function MessageBubble({
     onTaskLinked?.(msg.id, task);
   };
 
+  const MENTION_PRIORITY_COLORS: Record<string, string> = {
+    low: 'var(--faint)', normal: 'var(--ink)', high: '#C47B2A', urgent: 'var(--danger)',
+  };
+
   const renderContent = (content: string) => {
-    const parts = content.split(/(\*\*[^*]+\*\*|@\w+)/g);
+    const parts = content.split(mentionSplitRe);
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return <strong key={i} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
       }
-      if (/^@\w+/.test(part)) {
-        return <span key={i} style={{ fontWeight: 600, color: 'var(--ink)' }}>{part}</span>;
+      if (part.startsWith('@')) {
+        const mentionName = part.slice(1);
+        const mp = msg.mention_priorities?.find(m => m.name.toLowerCase() === mentionName.toLowerCase());
+        const color = mp ? (MENTION_PRIORITY_COLORS[mp.priority] ?? 'var(--ink)') : 'var(--ink)';
+        return <span key={i} style={{ fontWeight: 600, color }}>{part}</span>;
       }
       return part;
     });
@@ -532,11 +549,21 @@ export default function MessageBubble({
   }
 
   // ── Normal message ──────────────────────────────────────────────────────────
+  const importanceAccent = msg.importance === 'urgent' ? 'var(--danger)' : msg.importance === 'important' ? '#C47B2A' : null;
+  const importanceBg = msg.importance === 'urgent' ? 'rgba(168,51,42,0.07)' : msg.importance === 'important' ? 'rgba(196,123,42,0.06)' : undefined;
+
   return (
+    <>
     <div
       data-msg-id={msg.id}
-      className={`group relative px-6 transition-colors ${isContinuation ? 'py-1' : 'py-2.5'}`}
-      style={{ borderBottom: isGroupEnd ? '1px solid var(--rule-2)' : 'none' }}
+      className={`group relative transition-colors ${isContinuation ? 'py-1' : 'py-2.5'}`}
+      style={{
+        borderBottom: isGroupEnd ? '1px solid var(--rule-2)' : 'none',
+        borderLeft: importanceAccent ? `3px solid ${importanceAccent}` : '3px solid transparent',
+        paddingLeft: 21,
+        paddingRight: 24,
+        background: importanceBg,
+      }}
     >
       {/* ── Floating action bar — hidden while inline form or delete confirm is open ── */}
       {!showInlineForm && !showDeleteConfirm && (
@@ -548,6 +575,7 @@ export default function MessageBubble({
             onTask={!msg.linked_task && !quickCreatedTask && !inlineCreated
               ? () => { void handleQuickCreateTask(); }
               : undefined}
+            onAlert={!msg.is_system ? () => setShowAlertModal(true) : undefined}
             onEdit={isOwn && !msg.is_system ? handleEdit : undefined}
             onDelete={isOwn && !msg.is_system ? handleDelete : undefined}
             isOwn={isOwn}
@@ -584,6 +612,15 @@ export default function MessageBubble({
               {depth === 1 && (
                 <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>reply</span>
               )}
+              {importanceAccent && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
+                  color: 'var(--paper)', background: importanceAccent,
+                  padding: '2px 7px', marginLeft: 4, flexShrink: 0,
+                }}>
+                  {msg.importance}
+                </span>
+              )}
             </div>
           )}
 
@@ -618,6 +655,17 @@ export default function MessageBubble({
                 {msg.shared_message.content || <span style={{ fontStyle: 'italic', color: 'var(--faint)' }}>No content</span>}
               </p>
             </div>
+          )}
+
+          {/* Importance pill for continuation messages (header row is hidden) */}
+          {isContinuation && importanceAccent && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
+              color: 'var(--paper)', background: importanceAccent,
+              padding: '2px 7px', display: 'inline-block', marginBottom: 4,
+            }}>
+              {msg.importance}
+            </span>
           )}
 
           {/* Message text — or inline edit form */}
@@ -761,5 +809,23 @@ export default function MessageBubble({
         </div>
       </div>
     </div>
+
+    {showAlertModal && (
+      <SendPriorityAlertModal
+        onClose={() => setShowAlertModal(false)}
+        initialMessage={msg.content.slice(0, 300)}
+        initialRecipientIds={extractMentionedIds(msg.content, members).filter(id => id !== user?.id)}
+      />
+    )}
+    </>
   );
 }
+
+export default memo(MessageBubble, (prev, next) =>
+  prev.msg === next.msg &&
+  prev.isContinuation === next.isContinuation &&
+  prev.isGroupEnd === next.isGroupEnd &&
+  prev.depth === next.depth &&
+  prev.inThread === next.inThread &&
+  prev.replyTo === next.replyTo
+);

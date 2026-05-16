@@ -13,6 +13,8 @@ import taskRoutes, { setIo as setTaskIo } from './routes/tasks';
 import dmRoutes, { setIo as setDmIo } from './routes/dms';
 import notificationRoutes, { setIo as setNotifIo } from './routes/notifications';
 import searchRoutes from './routes/search';
+import { authMiddleware } from './middleware/auth';
+import { requireWorkspace } from './middleware/workspace';
 
 const app = express();
 const server = createServer(app);
@@ -46,14 +48,18 @@ setDmIo(io);
 setNotifIo(io);
 
 // Routes
+// Auth and workspace management are unguarded — no workspace context needed
 app.use('/api/auth', authRoutes);
 app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/channels', channelRoutes);
-app.use('/api/boards', boardRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/dms', dmRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/search', searchRoutes);
+
+// All other routes require auth + valid workspace membership
+const protect = [authMiddleware, requireWorkspace()];
+app.use('/api/channels',      ...protect, channelRoutes);
+app.use('/api/boards',        ...protect, boardRoutes);
+app.use('/api/tasks',         ...protect, taskRoutes);
+app.use('/api/dms',           ...protect, dmRoutes);
+app.use('/api/notifications', ...protect, notificationRoutes);
+app.use('/api/search',        ...protect, searchRoutes);
 
 const PORT = process.env.PORT || 3001;
 

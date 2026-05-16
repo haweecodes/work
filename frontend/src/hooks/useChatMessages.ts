@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useContext } from 'react';
 import client from '../api/client';
 import SocketContext from '../context/SocketContext';
-import type { Message, Reaction, Task, User } from '../types';
+import type { Message, MentionPriority, Reaction, Task, User } from '../types';
 
 interface Config {
   type: 'channel' | 'dm';
@@ -22,7 +22,7 @@ export interface UseChatMessagesReturn {
   /** Expose so components can apply task-link / modal-close updates */
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   handleContentChange: (val: string) => void;
-  handleSend: (e: React.SyntheticEvent) => Promise<void>;
+  handleSend: (e: React.SyntheticEvent, meta?: { importance?: string; mentionPriorities?: MentionPriority[] }) => Promise<void>;
   handleMsgUpdated: (msgId: string, newContent: string, editedAt?: string) => void;
   handleMsgDeleted: (msgId: string) => void;
   handleReactionToggle: (msgId: string, reactions: Reaction[]) => void;
@@ -90,8 +90,14 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
           m.content === msg.content
         );
         if (tempIdx !== -1) {
+          const optimistic = prev[tempIdx];
           const next = [...prev];
-          next[tempIdx] = msg;
+          next[tempIdx] = {
+            ...msg,
+            // Preserve importance/mention_priorities from optimistic if server doesn't echo them yet
+            importance: msg.importance ?? optimistic.importance,
+            mention_priorities: msg.mention_priorities ?? optimistic.mention_priorities,
+          };
           return next;
         }
         if (prev.some(m => m.id === msg.id)) return prev; // dedup
@@ -193,10 +199,12 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
   };
 
   // ── Optimistic send ───────────────────────────────────────────────────────
-  const handleSend = async (e: React.SyntheticEvent) => {
+  const handleSend = async (e: React.SyntheticEvent, meta?: { importance?: string; mentionPriorities?: MentionPriority[] }) => {
     e.preventDefault();
     if (!content.trim() || !user || !id) return;
     const text = content.trim();
+    const importance = meta?.importance || 'normal';
+    const mentionPriorities = meta?.mentionPriorities ?? [];
     setContent('');
 
     const optimistic: Message = {
@@ -207,13 +215,17 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
       created_at: new Date().toISOString(),
       sender: { id: user.id, name: user.name, avatar_url: user.avatar_url, email: user.email },
       reactions: [],
+      importance,
+      mention_priorities: mentionPriorities,
     };
 
     pendingScrollId.current = optimistic.id;
     setMessages(prev => [...prev, optimistic]);
 
     const postUrl = type === 'channel' ? '/api/channels/messages' : `/api/dms/${id}`;
-    const body    = type === 'channel' ? { channel_id: id, content: text } : { content: text };
+    const body = type === 'channel'
+      ? { channel_id: id, content: text, importance, mention_priorities: mentionPriorities }
+      : { content: text, importance };
     try {
       await client.post(postUrl, body);
     } catch {

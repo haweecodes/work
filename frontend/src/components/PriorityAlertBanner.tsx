@@ -25,25 +25,25 @@ export default function PriorityAlertBanner() {
       {/* Pulsing dot */}
       <span style={{
         width: 7, height: 7, borderRadius: '50%',
-        background: 'var(--danger)', flexShrink: 0,
+        background: '#F04040', flexShrink: 0,
         animation: 'pulse 1.5s ease-in-out infinite',
       }} />
 
       {/* Label */}
-      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--danger)', flexShrink: 0 }}>
+      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#F04040', flexShrink: 0 }}>
         Priority Alert
       </span>
 
       {/* Queue counter */}
       {total > 1 && (
-        <span style={{ fontSize: 11, color: 'rgba(248,247,243,0.35)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 11, color: 'rgba(248,247,243,0.65)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
           {total} unresolved
         </span>
       )}
 
       {/* Sender */}
       {alert.sender_name && (
-        <span style={{ fontSize: 13, color: 'rgba(248,247,243,0.55)', flexShrink: 0 }}>
+        <span style={{ fontSize: 13, color: 'rgba(248,247,243,0.80)', flexShrink: 0 }}>
           From <strong style={{ color: 'var(--paper)', fontWeight: 600 }}>{alert.sender_name}</strong>
         </span>
       )}
@@ -58,7 +58,7 @@ export default function PriorityAlertBanner() {
       </span>
 
       {/* Timestamp */}
-      <span style={{ fontSize: 11, color: 'rgba(248,247,243,0.35)', flexShrink: 0, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em' }}>
+      <span style={{ fontSize: 11, color: 'rgba(248,247,243,0.65)', flexShrink: 0, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em' }}>
         {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true })}
       </span>
 

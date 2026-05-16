@@ -25,7 +25,6 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const id = uuidv4();
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + id.slice(0, 6);
@@ -111,7 +110,6 @@ router.post('/join/:code', authMiddleware, async (req: Request, res: Response) =
   try {
     const workspace = await get('SELECT * FROM workspaces WHERE invite_code = ?', [req.params.code]);
     if (!workspace) return res.status(404).json({ error: 'Invalid invite code' });
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const existing = await get('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
       [workspace.id, req.user.id]);
