@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow, format, addDays } from 'date-fns';
 import useAuthStore from '../store/authStore';
@@ -173,29 +173,48 @@ function InlineTaskForm({
   onSuccess: (task: Task) => void;
   onOpenFull: (data: InlineTaskPrefill) => void;
 }) {
-  const { boards, columns, fetchColumns } = useBoardStore();
+  const { boards, columns: storeColumns } = useBoardStore();
   const [title, setTitle] = useState(prefill.slice(0, 120));
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState(defaultDueDate ?? '');
+  const [selectedBoardId, setSelectedBoardId] = useState(boards[0]?.id ?? '');
+  const [colOptions, setColOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedColId, setSelectedColId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const activeBoard = boards[0];
-  const todoColumn = columns.find(c => /to.?do|todo|backlog/i.test(c.title)) ?? columns[0];
+  // Load columns whenever the selected board changes
+  useEffect(() => {
+    if (!selectedBoardId) return;
+    // Re-use store columns if they're already loaded for this board
+    if (storeColumns.length > 0 && storeColumns[0]?.board_id === selectedBoardId) {
+      const opts = storeColumns.map(c => ({ id: c.id, title: c.title }));
+      setColOptions(opts);
+      const todo = storeColumns.find(c => /to.?do|todo|backlog/i.test(c.title)) ?? storeColumns[0];
+      setSelectedColId(todo?.id ?? '');
+      return;
+    }
+    // Otherwise fetch directly (local to this form — doesn't overwrite global store)
+    client.get<Array<{ id: string; title: string }>>(`/api/boards/${selectedBoardId}/columns`)
+      .then(({ data }) => {
+        setColOptions(data.map(c => ({ id: c.id, title: c.title })));
+        const todo = data.find(c => /to.?do|todo|backlog/i.test(c.title)) ?? data[0];
+        setSelectedColId(todo?.id ?? '');
+      })
+      .catch(() => setColOptions([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBoardId]);
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
-    if (!activeBoard) { onOpenFull({ title, priority, dueDate }); return; }
-    if (!todoColumn) {
-      await fetchColumns(activeBoard.id);
-      return;
-    }
+    if (!selectedBoardId) { onOpenFull({ title, priority, dueDate }); return; }
+    if (!selectedColId) { setError('Select a column first.'); return; }
     setSaving(true);
     setError('');
     try {
       const { data } = await client.post<Task>('/api/tasks', {
-        board_id: activeBoard.id,
-        column_id: todoColumn.id,
+        board_id: selectedBoardId,
+        column_id: selectedColId,
         title: title.trim(),
         priority,
         due_date: dueDate || undefined,
@@ -203,124 +222,84 @@ function InlineTaskForm({
       });
       onSuccess(data);
     } catch {
-      setError('Failed to create task. Try again.');
+      setError('Failed to create task.');
       setSaving(false);
     }
   };
 
   return (
     <div
-      className="mt-2 rounded-xl border p-3 animate-fade-in"
+      className="mt-2"
       onClick={e => e.stopPropagation()}
-      style={{
-        borderColor: '#7C3AED',
-        borderWidth: 1.5,
-        background: '#FFFFFF',
-        boxShadow: '0 0 0 4px rgba(124,58,237,0.08)',
-      }}
+      style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 12, paddingTop: 8, paddingBottom: 8 }}
     >
-      {/* Header */}
-      <div className="flex items-center gap-1.5 mb-3 text-[12px] font-semibold" style={{ color: '#7C3AED' }}>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M13.5 2h-11A1.5 1.5 0 001 3.5v9A1.5 1.5 0 002.5 14h11a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0013.5 2zM6.5 11.5l-3-3 1.06-1.06 1.94 1.94 4.44-4.44 1.06 1.06-5.5 5.5z"/>
-        </svg>
-        Create Task from Message
-      </div>
+      {/* Heading */}
+      <div className="label mb-3" style={{ marginBottom: 10 }}>Create task from message</div>
 
-      {/* Title — full width */}
-      <div className="mb-2">
-        <label className="block text-[10.5px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#6B7280' }}>
-          Task Title
-        </label>
+      {/* Title */}
+      <div className="mb-3">
+        <label className="label">Title</label>
         <input
           autoFocus
-          className="w-full rounded-md px-2.5 py-1.5 text-[13px] text-gray-900 border outline-none transition-colors"
-          style={{ background: '#F8F9FC', borderColor: '#E5E7EB', fontFamily: 'DM Sans, sans-serif' }}
+          className="input"
           value={title}
           onChange={e => setTitle(e.target.value)}
           placeholder="What needs to be done?"
-          onFocus={e => (e.currentTarget.style.borderColor = '#7C3AED')}
-          onBlur={e => (e.currentTarget.style.borderColor = '#E5E7EB')}
           onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') onClose(); }}
         />
       </div>
 
-      {/* Priority + Due date row */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
+      {/* Board + Column */}
+      <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
-          <label className="block text-[10.5px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#6B7280' }}>
-            Priority
-          </label>
-          <select
-            className="w-full rounded-md px-2.5 py-1.5 text-[13px] border outline-none"
-            style={{ background: '#F8F9FC', borderColor: '#E5E7EB', color: '#111827', fontFamily: 'DM Sans, sans-serif' }}
-            value={priority}
-            onChange={e => setPriority(e.target.value)}
-          >
+          <label className="label">Board</label>
+          <select className="input" value={selectedBoardId} onChange={e => setSelectedBoardId(e.target.value)}>
+            {boards.length === 0
+              ? <option value="">No boards yet</option>
+              : boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)
+            }
+          </select>
+        </div>
+        <div>
+          <label className="label">Column</label>
+          <select className="input" value={selectedColId} onChange={e => setSelectedColId(e.target.value)}
+            disabled={colOptions.length === 0}>
+            {colOptions.length === 0
+              ? <option value="">Loading…</option>
+              : colOptions.map(c => <option key={c.id} value={c.id}>{c.title}</option>)
+            }
+          </select>
+        </div>
+      </div>
+
+      {/* Priority + Due date */}
+      <div className="grid grid-cols-2 gap-4 mb-3">
+        <div>
+          <label className="label">Priority</label>
+          <select className="input" value={priority} onChange={e => setPriority(e.target.value)}>
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
         </div>
         <div>
-          <label className="block text-[10.5px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#6B7280' }}>
-            Due Date
-          </label>
-          <input
-            type="date"
-            className="w-full rounded-md px-2.5 py-1.5 text-[13px] border outline-none"
-            style={{ background: '#F8F9FC', borderColor: '#E5E7EB', color: '#111827', fontFamily: 'DM Sans, sans-serif' }}
-            value={dueDate}
-            onChange={e => setDueDate(e.target.value)}
-          />
+          <label className="label">Due date</label>
+          <input type="date" className="input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
         </div>
       </div>
 
-      {/* Board info */}
-      {activeBoard && (
-        <div className="flex items-center gap-1.5 mb-3 text-[11.5px]" style={{ color: '#9CA3AF' }}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M2 1h3v14H2V1zm4.5 2h3v12h-3V3zM11 5h3v10h-3V5z"/>
-          </svg>
-          Board: <span className="font-medium text-gray-600">{activeBoard.name}</span>
-          {todoColumn && <> · Column: <span className="font-medium text-gray-600">{todoColumn.title}</span></>}
-        </div>
-      )}
-
-      {error && <p className="text-[11.5px] text-red-500 mb-2">{error}</p>}
+      {error && <p style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 8 }}>{error}</p>}
 
       {/* Actions */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => onOpenFull({ title, priority, dueDate })}
-          className="text-[12px] font-medium transition-colors"
-          style={{ color: '#7C3AED' }}
-          onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-          onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-        >
+      <div className="flex items-baseline gap-5">
+        <button onClick={handleSubmit} disabled={saving || !title.trim()} className="btn-primary">
+          {saving ? 'Saving…' : 'Add to board →'}
+        </button>
+        <button onClick={onClose} className="btn-ghost">Cancel</button>
+        <button onClick={() => onOpenFull({ title, priority, dueDate })} className="btn-ghost"
+          style={{ marginLeft: 'auto' }}>
           More options →
         </button>
-        <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-[13px] border transition-colors"
-            style={{ color: '#6B7280', borderColor: '#E5E7EB', background: 'transparent', fontFamily: 'DM Sans, sans-serif' }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#F3F4F6')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving || !title.trim()}
-            className="px-3 py-1.5 rounded-md text-[13px] font-medium text-white transition-opacity disabled:opacity-50"
-            style={{ background: '#7C3AED', fontFamily: 'DM Sans, sans-serif' }}
-            onMouseEnter={e => { if (!saving) e.currentTarget.style.opacity = '0.88'; }}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-          >
-            {saving ? 'Saving…' : 'Add to Board →'}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -341,6 +320,8 @@ interface MessageBubbleProps {
   replyTo?: Message;
   /** True when the previous message is from the same sender within 5 minutes — hides avatar + header */
   isContinuation?: boolean;
+  /** True when the next message starts a new group — shows the row separator */
+  isGroupEnd?: boolean;
 }
 
 export default function MessageBubble({
@@ -356,6 +337,7 @@ export default function MessageBubble({
   inThread = false,
   replyTo,
   isContinuation = false,
+  isGroupEnd = true,
 }: MessageBubbleProps) {
   const user = useAuthStore(s => s.user);
   const { threadUnread, setActiveThreadId } = useUIStore();
@@ -477,7 +459,7 @@ export default function MessageBubble({
         return <strong key={i} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
       }
       if (/^@\w+/.test(part)) {
-        return <span key={i} className="text-primary-600 font-medium bg-primary-50 px-0.5 rounded">{part}</span>;
+        return <span key={i} style={{ fontWeight: 600, color: 'var(--ink)' }}>{part}</span>;
       }
       return part;
     });
@@ -498,49 +480,39 @@ export default function MessageBubble({
   // ── System message ──────────────────────────────────────────────────────────
   if (msg.is_system === 1) {
     const isTaskLink = !!msg.linked_task;
+    const sysText = (() => {
+      if (msg.content.startsWith('{')) {
+        try {
+          const p = JSON.parse(msg.content);
+          if (p.type === 'task_assigned') {
+            if (msg.channel_id) return `${p.actorName} assigned a task to ${p.assigneeName}: ${p.taskTitle}`;
+            if (p.actorId === user?.id) return `You assigned: ${p.taskTitle}`;
+            return `Assigned you to: ${p.taskTitle}`;
+          }
+          if (p.type === 'task_unassigned') {
+            if (msg.channel_id) return `${p.actorName} removed ${p.assigneeName} from: ${p.taskTitle}`;
+            if (p.actorId === user?.id) return `You removed them from: ${p.taskTitle}`;
+            return `Removed you from: ${p.taskTitle}`;
+          }
+        } catch {}
+      }
+      return msg.content;
+    })();
     return (
-      <div data-msg-id={msg.id} className="flex gap-3 px-6 py-2 hover:bg-gray-50/50 transition-colors">
-        <img src={msg.sender?.avatar_url} className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 opacity-80" alt={msg.sender?.name} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-semibold text-gray-700">{msg.sender?.name || 'System'}</span>
-            <span className="text-xs text-gray-400">{formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium tracking-wide shadow-sm border border-gray-200/50">system</span>
-          </div>
-          <div
-            onClick={() => {
-              if (isTaskLink && msg.linked_task && selectedTask?.id !== msg.linked_task.id) setSelectedTask(msg.linked_task);
-            }}
-            className={`mt-1 inline-block border border-gray-100 rounded-lg px-3.5 py-2.5 text-sm text-gray-600 bg-gray-50
-              ${isTaskLink ? 'cursor-pointer hover:bg-white hover:border-primary-200 hover:shadow-sm transition-all group/sysbox' : ''}`}
-          >
-            <span>{renderContent((() => {
-              if (msg.content.startsWith('{')) {
-                try {
-                  const p = JSON.parse(msg.content);
-                  if (p.type === 'task_assigned') {
-                    if (msg.channel_id) return `${p.actorName} assigned a task to **${p.assigneeName}**: **${p.taskTitle}**`;
-                    if (p.actorId === user?.id) return `You assigned a task: **${p.taskTitle}**`;
-                    return `Assigned you to a task: **${p.taskTitle}**`;
-                  }
-                  if (p.type === 'task_unassigned') {
-                    if (msg.channel_id) return `${p.actorName} removed **${p.assigneeName}** from a task: **${p.taskTitle}**`;
-                    if (p.actorId === user?.id) return `You removed them from a task: **${p.taskTitle}**`;
-                    return `Removed you from a task: **${p.taskTitle}**`;
-                  }
-                } catch(e) {}
-              }
-              return msg.content;
-            })())}</span>
-            {isTaskLink && (
-              <div className="mt-2 flex items-center gap-1.5 text-primary-600 font-semibold text-[11px] border-t border-gray-200/60 pt-2 opacity-80 group-hover/sysbox:opacity-100 group-hover/sysbox:text-primary-700 transition-colors">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                </svg>
-                View task: <span className="font-medium">{msg.linked_task?.task_key ? `${msg.linked_task.task_key} ` : ''}{msg.linked_task?.title}</span>
-              </div>
-            )}
-          </div>
+      <div data-msg-id={msg.id} className="px-6 py-2"
+        style={{ borderBottom: isGroupEnd ? '1px solid var(--rule-2)' : 'none' }}>
+        <div className="flex items-baseline gap-2">
+          <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 500 }}>system</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic' }}>{sysText}</span>
+          {isTaskLink && (
+            <button
+              onClick={() => { if (msg.linked_task && selectedTask?.id !== msg.linked_task.id) setSelectedTask(msg.linked_task); }}
+              style={{ fontSize: 11, color: 'var(--muted)', textDecoration: 'none', flexShrink: 0 }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'underline'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.textDecoration = 'none'; }}>
+              view →
+            </button>
+          )}
         </div>
       </div>
     );
@@ -549,28 +521,12 @@ export default function MessageBubble({
   // ── Deleted message placeholder ─────────────────────────────────────────────
   if (msg.deleted) {
     return (
-      <div
-        data-msg-id={msg.id}
-        className="flex gap-3 px-6 py-1.5"
-      >
-        <div className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 bg-gray-100" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-semibold text-gray-400">{msg.sender?.name || 'Member'}</span>
-            <span className="text-xs text-gray-300">
-              {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
-            </span>
-          </div>
-          <p
-            className="text-sm italic flex items-center gap-1.5"
-            style={{ color: '#9CA3AF' }}
-          >
-            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="flex-shrink-0">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            This message was deleted.
-          </p>
-        </div>
+      <div data-msg-id={msg.id} className="px-6 py-2"
+        style={{ borderBottom: isGroupEnd ? '1px solid var(--rule-2)' : 'none' }}>
+        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink-2)' }}>{msg.sender?.name || 'Member'}</span>
+        <span style={{ fontSize: 13, color: 'var(--faint)', fontStyle: 'italic', marginLeft: 10 }}>
+          — message deleted —
+        </span>
       </div>
     );
   }
@@ -579,7 +535,8 @@ export default function MessageBubble({
   return (
     <div
       data-msg-id={msg.id}
-      className={`group relative px-6 hover:bg-gray-50/80 transition-colors ${isContinuation ? 'py-0.5' : 'py-1.5'}`}
+      className={`group relative px-6 transition-colors ${isContinuation ? 'py-1' : 'py-2.5'}`}
+      style={{ borderBottom: isGroupEnd ? '1px solid var(--rule-2)' : 'none' }}
     >
       {/* ── Floating action bar — hidden while inline form or delete confirm is open ── */}
       {!showInlineForm && !showDeleteConfirm && (
@@ -594,7 +551,6 @@ export default function MessageBubble({
             onEdit={isOwn && !msg.is_system ? handleEdit : undefined}
             onDelete={isOwn && !msg.is_system ? handleDelete : undefined}
             isOwn={isOwn}
-            compact={inThread}
             onReactionToggle={onReactionToggle}
             reactions={effectiveReactions}
             onReactionsChange={handleReactionsChange}
@@ -604,82 +560,62 @@ export default function MessageBubble({
       )}
 
       <div className="flex gap-3 items-start">
+        {/* Avatar column — 22px wide for consistent text alignment across groups */}
         {isContinuation ? (
-          /* Time hint shown on hover in the avatar slot */
-          <div className="w-8 flex-shrink-0 flex items-center justify-center" style={{ height: 20 }}>
-            <span className="text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none"
-              style={{ color: '#C4C9D4' }}>
-              {format(new Date(msg.created_at), 'HH:mm')}
-            </span>
-          </div>
+          <div style={{ width: 22, flexShrink: 0 }} />
         ) : (
           <img
             src={msg.sender?.avatar_url}
-            className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5"
-            alt={msg.sender?.name}
+            alt={msg.sender?.name || ''}
+            style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, marginTop: 3, objectFit: 'cover' }}
           />
         )}
 
         <div className="flex-1 min-w-0">
           {/* Header row — omitted for continuation messages */}
           {!isContinuation && (
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-semibold text-gray-900">{msg.sender?.name || 'Former Member'}</span>
-            <span className="text-xs text-gray-400">
-              {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
-            </span>
-            {depth === 1 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-500 font-medium">reply</span>
-            )}
-          </div>
+            <div className="flex items-baseline gap-2.5 mb-1">
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+                {msg.sender?.name || 'Former Member'}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em' }}>
+                {format(new Date(msg.created_at), 'HH:mm')}
+              </span>
+              {depth === 1 && (
+                <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>reply</span>
+              )}
+            </div>
           )}
 
-          {/* Reply-to context card */}
+          {/* Reply-to context */}
           {replyTo && (
-            <div
-              className="mb-1.5 flex items-start gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors max-w-xs"
-              onClick={() => onReply?.(replyTo)}
-              title="Jump to this reply"
-            >
-              <svg className="w-3 h-3 text-gray-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-              <div className="min-w-0">
-                <span className="text-xs font-semibold text-gray-500">{replyTo.sender?.name}</span>
-                <p className="text-xs text-gray-400 truncate leading-snug mt-0.5">
-                  {replyTo.content.slice(0, 80)}{replyTo.content.length > 80 ? '…' : ''}
-                </p>
-              </div>
+            <div className="mb-2 cursor-pointer" onClick={() => onReply?.(replyTo)}
+              style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 10 }}
+              onMouseEnter={e => (e.currentTarget.style.borderLeftColor = 'var(--ink)')}
+              onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'var(--rule)')}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{replyTo.sender?.name}</span>
+              <p style={{ fontSize: 13, color: 'var(--faint)', marginTop: 1 }}>
+                {replyTo.content.slice(0, 80)}{replyTo.content.length > 80 ? '…' : ''}
+              </p>
             </div>
           )}
 
           {/* Shared message preview */}
           {msg.shared_message && (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={handleGoToSource}
+            <div role="button" tabIndex={0} onClick={handleGoToSource}
               onKeyDown={e => e.key === 'Enter' && handleGoToSource()}
-              className="mb-2 rounded-lg border-l-4 border-primary-300 bg-primary-50/60 px-3 py-2 max-w-sm cursor-pointer hover:bg-primary-100/70 transition-colors group/shared"
-              title="Click to view original message"
-            >
-              <div className="flex items-center gap-1.5 mb-0.5">
-                {msg.shared_message.sender_avatar && (
-                  <img src={msg.shared_message.sender_avatar} className="w-4 h-4 rounded-full" alt="" />
-                )}
-                <span className="text-xs font-semibold text-primary-700">{msg.shared_message.sender_name}</span>
+              className="mb-2 cursor-pointer"
+              style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 10, maxWidth: '56ch' }}
+              onMouseEnter={e => (e.currentTarget.style.borderLeftColor = 'var(--ink)')}
+              onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'var(--rule)')}>
+              <div className="flex items-baseline gap-2 mb-0.5">
+                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{msg.shared_message.sender_name}</span>
                 {msg.shared_message.channel_name && (
-                  <span className="text-xs text-primary-400">in #{msg.shared_message.channel_name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--faint)' }}>#{msg.shared_message.channel_name}</span>
                 )}
-                <span className="text-xs text-primary-300">
-                  {formatDistanceToNow(new Date(msg.shared_message.created_at), { addSuffix: true })}
-                </span>
-                <svg className="w-3 h-3 text-primary-400 ml-auto opacity-0 group-hover/shared:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
               </div>
-              <p className="text-xs text-primary-800 leading-relaxed line-clamp-3 whitespace-pre-wrap">
-                {msg.shared_message.content || <span className="italic text-primary-400">No content</span>}
+              <p style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }} className="line-clamp-3 whitespace-pre-wrap">
+                {msg.shared_message.content || <span style={{ fontStyle: 'italic', color: 'var(--faint)' }}>No content</span>}
               </p>
             </div>
           )}
@@ -689,8 +625,7 @@ export default function MessageBubble({
             <div className="mt-0.5">
               <textarea
                 autoFocus
-                className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 resize-none outline-none transition-colors"
-                style={{ borderColor: '#7C3AED', background: '#FAFAFA', minHeight: 60, maxHeight: 200, fontFamily: 'inherit' }}
+                style={{ width: '100%', maxWidth: '64ch', fontSize: 15, lineHeight: 1.55, color: 'var(--ink)', background: 'transparent', border: 'none', borderBottom: '1px solid var(--ink)', outline: 'none', resize: 'none', minHeight: 56, maxHeight: 200, fontFamily: 'inherit', letterSpacing: '-0.005em', padding: '2px 0' }}
                 value={editContent}
                 onChange={e => setEditContent(e.target.value)}
                 onKeyDown={e => {
@@ -698,32 +633,24 @@ export default function MessageBubble({
                   if (e.key === 'Escape') setEditing(false);
                 }}
               />
-              <div className="flex items-center gap-2 mt-1.5">
-                <span className="text-[11px] text-gray-400">Enter to save · Esc to cancel</span>
-                <div className="flex gap-1.5 ml-auto">
-                  <button onClick={() => setEditing(false)}
-                    className="px-2.5 py-1 rounded text-[12px] border text-gray-500 hover:bg-gray-50 transition-colors"
-                    style={{ borderColor: '#E5E7EB' }}>
-                    Cancel
-                  </button>
-                  <button onClick={handleEditSave} disabled={editSaving || !editContent.trim()}
-                    className="px-2.5 py-1 rounded text-[12px] font-medium text-white transition-opacity disabled:opacity-50"
-                    style={{ background: '#7C3AED' }}>
-                    {editSaving ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
+              <div className="flex items-baseline gap-5 mt-2">
+                <button onClick={handleEditSave} disabled={editSaving || !editContent.trim()} className="btn-primary">
+                  {editSaving ? 'Saving…' : 'Save →'}
+                </button>
+                <button onClick={() => setEditing(false)} className="btn-ghost">Cancel</button>
+                <span style={{ fontSize: 11, color: 'var(--faint)', marginLeft: 'auto', letterSpacing: '0.04em' }}>↵ save · Esc cancel</span>
               </div>
             </div>
           ) : (msg.content || !msg.shared_message) && (
-            <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+            <p style={{ fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: '64ch', letterSpacing: '-0.005em', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {renderContent(msg.content)}
               {msg.edited_at && (
                 <span
-                  className="ml-1.5 text-[11px] select-none"
-                  style={{ color: '#9CA3AF' }}
+                  className="ml-1.5 select-none"
+                  style={{ fontSize: 11, color: 'var(--faint)', fontStyle: 'italic' }}
                   title={`Edited ${formatDistanceToNow(new Date(msg.edited_at), { addSuffix: true })}`}
                 >
-                  (edited)
+                  edited
                 </span>
               )}
             </p>
@@ -750,114 +677,85 @@ export default function MessageBubble({
             />
           )}
 
-          {/* Task-linked pill — shows after task was created; click to open detail */}
+          {/* Task-linked block — left-border pattern, same as reply-to and shared-message */}
           {(() => {
             const linkedTask = msg.linked_task ?? quickCreatedTask;
             if (!linkedTask && !inlineCreated) return null;
             return (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!linkedTask) return;
-                  setSelectedTask(linkedTask);
-                  setActiveThreadId(null); // close thread so task detail takes the right-panel slot
-                }}
-                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 mt-1.5 text-[11.5px] font-semibold border transition-all"
-                style={{ background: '#F0FDFA', borderColor: '#99F6E4', color: '#0D9488', cursor: linkedTask ? 'pointer' : 'default' }}
-                onMouseEnter={e => { if (linkedTask) { e.currentTarget.style.background = '#CCFBF1'; e.currentTarget.style.borderColor = '#2DD4BF'; } }}
-                onMouseLeave={e => { e.currentTarget.style.background = '#F0FDFA'; e.currentTarget.style.borderColor = '#99F6E4'; }}
+              <div
+                className="mt-2"
+                style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 10, cursor: linkedTask ? 'pointer' : 'default' }}
+                onClick={() => { if (!linkedTask) return; setSelectedTask(linkedTask); setActiveThreadId(null); }}
+                onMouseEnter={e => { if (linkedTask) e.currentTarget.style.borderLeftColor = 'var(--ink)'; }}
+                onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'var(--rule)')}
               >
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M13.5 2h-11A1.5 1.5 0 001 3.5v9A1.5 1.5 0 002.5 14h11a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0013.5 2zM6.5 11.5l-3-3 1.06-1.06 1.94 1.94 4.44-4.44 1.06 1.06-5.5 5.5z"/>
-                </svg>
-                Task created
-                {linkedTask?.task_key && <span className="font-bold">· {linkedTask.task_key}</span>}
-                {linkedTask && <span style={{ opacity: 0.7 }}>· Edit →</span>}
-              </button>
+                <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 3 }}>
+                  Task created
+                </div>
+                {linkedTask ? (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-2)', letterSpacing: '-0.005em', lineHeight: 1.4 }}>
+                      {linkedTask.title}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em' }}>
+                      {linkedTask.task_key} · open →
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--faint)', fontStyle: 'italic' }}>Task added to board</div>
+                )}
+              </div>
             );
           })()}
 
-          {/* Inline delete confirmation — stacked layout works at any panel width */}
+          {/* Inline delete confirmation */}
           {showDeleteConfirm && (
-            <div
-              className="mt-2 rounded-xl border animate-fade-in overflow-hidden"
-              style={{ borderColor: '#FECACA', background: '#FEF2F2' }}
-            >
-              <div className="px-3.5 pt-2.5 pb-2">
-                {/* Text row */}
-                <div className="flex items-center gap-2 mb-2.5">
-                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#DC2626" strokeWidth={2} className="flex-shrink-0">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                  </svg>
-                  <p className="text-[13px] font-semibold leading-snug" style={{ color: '#991B1B' }}>
-                    Delete this message?
-                  </p>
-                </div>
-                <p className="text-[12px] mb-2.5 ml-5" style={{ color: '#B91C1C' }}>
-                  This can't be undone.
-                </p>
-                {/* Button row — always right-aligned */}
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    disabled={deleteInFlight}
-                    className="px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors disabled:opacity-50"
-                    style={{ color: '#6B7280', borderColor: '#E5E7EB', background: 'transparent', fontFamily: 'DM Sans, sans-serif' }}
-                    onMouseEnter={e => { if (!deleteInFlight) e.currentTarget.style.background = '#F3F4F6'; }}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteConfirm}
-                    disabled={deleteInFlight}
-                    className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-white transition-opacity disabled:opacity-60"
-                    style={{ background: '#DC2626', fontFamily: 'DM Sans, sans-serif' }}
-                    onMouseEnter={e => { if (!deleteInFlight) e.currentTarget.style.opacity = '0.88'; }}
-                    onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                  >
-                    {deleteInFlight ? 'Deleting…' : 'Delete'}
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-baseline gap-5 mt-2 pt-2 animate-fade-in" style={{ borderTop: '1px solid var(--rule)', fontSize: 13, color: 'var(--muted)' }}>
+              <span>Delete this message?</span>
+              <button onClick={handleDeleteConfirm} disabled={deleteInFlight} className="btn-danger">
+                {deleteInFlight ? '…' : 'Delete'}
+              </button>
+              <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteInFlight} className="btn-ghost">
+                Cancel
+              </button>
             </div>
           )}
 
-          {/* Reaction pills */}
+          {/* Reactions — plain emoji count */}
           {effectiveReactions.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {effectiveReactions.map(r => (
-                <button
-                  key={r.emoji}
-                  type="button"
-                  onClick={() => toggleRef.current(r.emoji)}
-                  className={[
-                    'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all border select-none',
-                    r.users.includes(user?.id ?? '')
-                      ? 'bg-primary-50 border-primary-200 text-primary-700 hover:bg-primary-100'
-                      : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100',
-                  ].join(' ')}
-                >
-                  <span className="text-sm leading-none">{r.emoji}</span>
-                  <span>{r.count}</span>
-                </button>
-              ))}
+            <div className="flex flex-wrap gap-4 mt-2">
+              {effectiveReactions.map(r => {
+                const isMine = r.users.includes(user?.id ?? '');
+                return (
+                  <button key={r.emoji} type="button" onClick={() => toggleRef.current(r.emoji)}
+                    className="flex items-baseline gap-1 select-none"
+                    style={{ fontSize: 13, color: isMine ? 'var(--ink)' : 'var(--muted)', fontWeight: isMine ? 500 : 400 }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = isMine ? 'var(--ink)' : 'var(--muted)')}>
+                    <span>{r.emoji}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.count}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Thread reply count */}
+          {/* Thread chip */}
           {depth === 0 && !inThread && msg.reply_count ? (
-            <div className="mt-1.5 flex items-center gap-2">
+            <div className="mt-1.5">
               {onReply && (
-                <button
-                  onClick={() => onReply(msg)}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-50 text-xs font-medium text-primary-600 hover:bg-primary-50 transition-colors border border-gray-100 hover:border-primary-100"
-                >
-                  <img src={msg.sender?.avatar_url} className="w-4 h-4 rounded-full border border-white" alt="" />
-                  {msg.reply_count} {msg.reply_count === 1 ? 'reply' : 'replies'}
+                <button onClick={() => onReply(msg)}
+                  className="flex items-baseline gap-2"
+                  style={{ fontSize: 12, color: 'var(--muted)', letterSpacing: '0.02em' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}>
+                  <strong style={{ color: 'var(--ink)', fontWeight: 500 }}>
+                    {msg.reply_count} {msg.reply_count === 1 ? 'reply' : 'replies'}
+                  </strong>
+                  {threadUnread[msg.id] > 0 && <span style={{ color: 'var(--ink)', fontWeight: 500 }}>· {threadUnread[msg.id]} new</span>}
+                  <span style={{ color: 'var(--faint)' }}>→</span>
                 </button>
               )}
-              {threadUnread[msg.id] > 0 && <span className="flex h-2 w-2 rounded-full bg-red-500" />}
             </div>
           ) : null}
         </div>

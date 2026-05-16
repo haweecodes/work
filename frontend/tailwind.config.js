@@ -4,51 +4,51 @@ export default {
   theme: {
     extend: {
       colors: {
+        // WorkComm Minimal tokens (map CSS vars for Tailwind usage)
+        paper:   '#F8F7F3',
+        'paper-2': '#F2F1EC',
+        ink:     '#17171B',
+        'ink-2': '#2F2F33',
+        muted:   '#6E6E72',
+        faint:   '#A0A09C',
+        rule:    '#E5E3DD',
+        'rule-2':'#EFEEE9',
+        danger:  '#A8332A',
+        // Keep surface mapped to paper for backward compat
+        surface: '#F8F7F3',
+        // Neutral primary (ink-based, no color accent)
         primary: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
+          50:  '#f9f8f6',
+          100: '#f2f1ec',
+          200: '#e5e3dd',
+          300: '#ccc9bf',
+          400: '#a0a09c',
+          500: '#6e6e72',
+          600: '#2f2f33',
+          700: '#17171b',
+          800: '#0f0f12',
+          900: '#080809',
         },
-        // Dark sidebar palette
-        sidebar: {
-          bg:      '#111118',
-          surface: '#18181f',
-          border:  'rgba(255,255,255,0.08)',
-          muted:   'rgba(255,255,255,0.35)',
-          text:    'rgba(255,255,255,0.75)',
-          hover:   'rgba(255,255,255,0.06)',
-          accent:  '#7C3AED',
-          'accent-muted': 'rgba(124,58,237,0.18)',
-        },
-        surface: '#F9F9F8',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        dm: ['DM Sans', 'system-ui', 'sans-serif'],
+        sans: ['"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif'],
       },
       boxShadow: {
-        card: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
-        panel: '0 4px 24px rgba(0,0,0,0.08)',
-        dropdown: '0 8px 24px rgba(0,0,0,0.12)',
+        card:     'none',
+        panel:    'none',
+        dropdown: '0 4px 16px rgba(0,0,0,0.10)',
       },
       animation: {
-        'slide-in': 'slideIn 0.2s ease-out',
-        'fade-in': 'fadeIn 0.15s ease-out',
+        'slide-in': 'slideIn 0.18s ease-out forwards',
+        'fade-in':  'fadeIn 0.12s ease-out forwards',
       },
       keyframes: {
         slideIn: {
-          '0%': { transform: 'translateX(100%)', opacity: 0 },
-          '100%': { transform: 'translateX(0)', opacity: 1 },
+          '0%':   { transform: 'translateX(12px)', opacity: 0 },
+          '100%': { transform: 'translateX(0)',    opacity: 1 },
         },
         fadeIn: {
-          '0%': { opacity: 0, transform: 'translateY(-4px)' },
+          '0%':   { opacity: 0, transform: 'translateY(-3px)' },
           '100%': { opacity: 1, transform: 'translateY(0)' },
         },
       },

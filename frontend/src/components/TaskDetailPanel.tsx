@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import client from '../api/client';
@@ -21,7 +21,7 @@ const PRIORITY_STYLES: Record<string, PriorityStyle> = {
   critical: { badge: 'badge-priority-critical',  dot: 'bg-red-500',     label: 'Critical' },
 };
 
-export default function TaskDetailPanel() {
+export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const setActiveThreadId = useUIStore(s => s.setActiveThreadId);
@@ -47,6 +47,7 @@ export default function TaskDetailPanel() {
   const [creatingSubtask, setCreatingSubtask] = useState(false);
 
   const [copiedKey, setCopiedKey] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   // Fetch the full enriched task whenever the selected task ID changes.
   // We populate the form from fresh API data but do NOT write back to the store
@@ -149,6 +150,24 @@ export default function TaskDetailPanel() {
     }) : null);
   };
 
+  // Auto-focus title when form finishes loading
+  useEffect(() => {
+    if (form) {
+      const t = setTimeout(() => titleRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [!!form]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closePanel = useCallback(() => {
+    if (onBack) onBack();
+    else { setSelectedTask(null); setSearchParams({}, { replace: true }); }
+  }, [onBack, setSelectedTask, setSearchParams]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); closePanel(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); handleSave(); }
+  }, [closePanel, handleSave]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCopyKey = () => {
     if (selectedTask?.task_key) {
       navigator.clipboard.writeText(window.location.origin + '/t/' + selectedTask.task_key);
@@ -174,66 +193,76 @@ export default function TaskDetailPanel() {
   const subtasks = allTasks.filter(t => t.parent_task_id === selectedTask.id);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-        <div className="flex items-center gap-2 relative">
-          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Task Details</span>
+    <div className="h-full flex flex-col" onKeyDown={handleKeyDown}>
+      {/* Header */}
+      <div className="flex items-center gap-3 flex-shrink-0" style={{ padding: '18px 28px 16px', borderBottom: '1px solid var(--rule)' }}>
+        {onBack && (
+          <button onClick={onBack} style={{ fontSize: 12, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}>
+            ← Back
+          </button>
+        )}
+        <div className="flex items-baseline gap-2 flex-1 min-w-0">
+          <span style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 500 }}>
+            Task
+          </span>
           {selectedTask.task_key && (
-            <>
-              <span className="text-gray-300">•</span>
-              <button 
-                onClick={handleCopyKey}
-                title="Copy task ID"
-                className="text-xs font-bold text-primary-600 bg-primary-50 px-2 py-0.5 rounded uppercase tracking-wider hover:bg-primary-100 transition-colors flex items-center gap-1 group/copy"
-              >
-                {selectedTask.task_key}
-                {copiedKey ? (
-                  <svg className="w-3 h-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                )}
-              </button>
-            </>
+            <button onClick={handleCopyKey} title="Copy task key"
+              style={{ fontSize: 11, color: copiedKey ? 'var(--ink)' : 'var(--muted)', letterSpacing: '0.1em', fontVariantNumeric: 'tabular-nums' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+              onMouseLeave={e => { if (!copiedKey) e.currentTarget.style.color = 'var(--muted)'; }}>
+              {copiedKey ? `${selectedTask.task_key} ✓` : selectedTask.task_key}
+            </button>
           )}
         </div>
-        <button onClick={() => {
-            setSelectedTask(null);
-            setSearchParams({}, { replace: true });
-          }}
-          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+        <button
+          onClick={() => { setSelectedTask(null); setSearchParams({}, { replace: true }); }}
+          style={{ fontSize: 12, color: 'var(--faint)', letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0 }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}>
+          Close
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+      <div className="flex-1 overflow-y-auto space-y-6" style={{ padding: '24px 28px' }}>
+        {/* Title */}
         <div>
-          <input className="w-full text-base font-semibold text-gray-900 border-0 outline-none bg-transparent
-            focus:ring-0 px-0 placeholder-gray-300 resize-none"
+          <input
+            ref={titleRef}
+            style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em', width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid transparent', outline: 'none', padding: '2px 0', fontFamily: 'inherit' }}
+            onFocus={e => (e.currentTarget.style.borderBottomColor = 'var(--ink)')}
+            onBlur={e => (e.currentTarget.style.borderBottomColor = 'transparent')}
+            onMouseEnter={e => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderBottomColor = 'var(--rule)'; }}
+            onMouseLeave={e => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderBottomColor = 'transparent'; }}
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
-            placeholder="Task title..." />
+            placeholder="Task title"
+          />
         </div>
 
+        {/* Priority */}
         <div>
           <label className="label">Priority</label>
-          <div className="flex gap-2">
-            {Object.entries(PRIORITY_STYLES).map(([key, val]) => (
+          <div className="flex gap-5">
+            {Object.entries(PRIORITY_STYLES).map(([key]) => (
               <button key={key} type="button"
                 onClick={() => setForm({ ...form, priority: key })}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors
-                  ${form.priority === key ? val.badge : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${val.dot}`} />
-                {val.label}
+                style={{
+                  fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase',
+                  color: form.priority === key ? 'var(--ink)' : 'var(--faint)',
+                  fontWeight: form.priority === key ? 500 : 400,
+                  textDecoration: form.priority === key ? 'underline' : 'none',
+                  textUnderlineOffset: 3,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                onMouseLeave={e => { if (form.priority !== key) e.currentTarget.style.color = 'var(--faint)'; }}>
+                {key.charAt(0).toUpperCase() + key.slice(1)}
               </button>
             ))}
           </div>
         </div>
 
+        {/* Status */}
         <div>
           <label className="label">Status</label>
           <select className="input" value={form.column_id} onChange={e => setForm({ ...form, column_id: e.target.value })}>
@@ -241,7 +270,7 @@ export default function TaskDetailPanel() {
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-6">
           <div>
             <label className="label">Due date</label>
             <input className="input" type="date" value={form.due_date}
@@ -264,8 +293,16 @@ export default function TaskDetailPanel() {
             {members.map(m => (
               <button key={m.id} type="button"
                 onClick={() => toggleAssignee(m.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors
-                  ${form.assignee_ids.includes(m.id) ? 'bg-primary-100 border-primary-300 text-primary-700' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                style={{
+                  fontSize: 13, color: form.assignee_ids.includes(m.id) ? 'var(--ink)' : 'var(--muted)',
+                  fontWeight: form.assignee_ids.includes(m.id) ? 500 : 400,
+                  borderBottom: `1px solid ${form.assignee_ids.includes(m.id) ? 'var(--ink)' : 'transparent'}`,
+                  paddingBottom: 1,
+                }}
+                className="flex items-center gap-1.5"
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                onMouseLeave={e => { if (!form.assignee_ids.includes(m.id)) e.currentTarget.style.color = 'var(--muted)'; }}
+              >
                 <img src={m.avatar_url} className="w-4 h-4 rounded-full" />
                 {m.name}
               </button>
@@ -282,34 +319,30 @@ export default function TaskDetailPanel() {
 
         <div>
           <label className="label">Subtasks</label>
-          <div className="space-y-2 mt-1">
+          <div className="space-y-0 mt-1">
             {subtasks.map(st => (
-              <div key={st.id} onClick={() => setSelectedTask(st)} className="p-3 bg-gray-50 rounded-xl border border-gray-200 cursor-pointer hover:border-primary-300 transition-colors flex items-center justify-between group">
-                <div className="flex gap-2 items-center">
-                  <div className={`w-2 h-2 rounded-full ${PRIORITY_STYLES[st.priority || 'medium']?.dot}`} />
-                  <p className="text-sm font-medium text-gray-900 group-hover:text-primary-700">{st.title}</p>
-                </div>
-                <span className="text-xs font-semibold text-gray-400 bg-white px-2 py-0.5 border border-gray-100 rounded-md">
+              <div key={st.id} onClick={() => setSelectedTask(st)}
+                className="flex items-baseline justify-between py-2 cursor-pointer"
+                style={{ borderBottom: '1px solid var(--rule-2)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                <p style={{ fontSize: 14, color: 'var(--ink)', letterSpacing: '-0.005em' }}>{st.title}</p>
+                <span style={{ fontSize: 11, color: 'var(--faint)', letterSpacing: '0.04em', textTransform: 'uppercase', marginLeft: 12 }}>
                   {columns.find(c => c.id === st.column_id)?.title}
                 </span>
               </div>
             ))}
-            
-            <form onSubmit={handleCreateSubtask} className="flex gap-2 mt-2">
-              <input 
-                type="text" 
-                className="input flex-1 border-dashed bg-gray-50/50 hover:bg-gray-50 focus:bg-white transition-colors"
-                placeholder="+ Add new subtask..."
+            <form onSubmit={handleCreateSubtask} className="flex items-baseline gap-4 pt-2">
+              <input
+                type="text"
+                className="input flex-1"
+                placeholder="New subtask…"
                 value={newSubtaskTitle}
                 onChange={e => setNewSubtaskTitle(e.target.value)}
                 disabled={creatingSubtask}
               />
-              <button 
-                type="submit" 
-                disabled={!newSubtaskTitle.trim() || creatingSubtask}
-                className="btn-primary whitespace-nowrap px-3 text-xs"
-              >
-                {creatingSubtask ? '...' : 'Add'}
+              <button type="submit" disabled={!newSubtaskTitle.trim() || creatingSubtask} className="btn-primary">
+                {creatingSubtask ? '…' : 'Add →'}
               </button>
             </form>
           </div>
@@ -361,20 +394,13 @@ export default function TaskDetailPanel() {
         </div>
       </div>
 
-      <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
-        <button onClick={handleDelete} className="btn-ghost text-red-500 hover:text-red-600 hover:bg-red-50" disabled={deleting}>
-          {deleting ? '...' : 'Delete'}
+      <div className="flex items-baseline gap-6 flex-shrink-0" style={{ padding: '16px 28px 20px', borderTop: '1px solid var(--rule)' }}>
+        <button onClick={handleSave} className="btn-primary" disabled={saving} title="Save (⌘↵)"
+          style={saveStatus === 'saved' ? { color: 'var(--ink)', textDecorationColor: 'var(--ink)' } : saveStatus === 'error' ? { color: 'var(--danger)' } : {}}>
+          {saving ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? 'Save failed — retry' : 'Save changes →'}
         </button>
-        <button
-          onClick={handleSave}
-          className="btn-primary flex-1 justify-center transition-colors"
-          disabled={saving}
-          style={saveStatus === 'saved' ? { background: '#059669' } : saveStatus === 'error' ? { background: '#DC2626' } : undefined}
-        >
-          {saving ? 'Saving…'
-            : saveStatus === 'saved' ? '✓ Saved'
-            : saveStatus === 'error' ? 'Save failed — retry'
-            : 'Save changes'}
+        <button onClick={handleDelete} className="btn-danger" disabled={deleting}>
+          {deleting ? '…' : 'Delete'}
         </button>
       </div>
     </div>

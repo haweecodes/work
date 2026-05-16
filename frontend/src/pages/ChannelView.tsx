@@ -8,8 +8,11 @@ import useUIStore from '../store/uiStore';
 import { useChatMessages } from '../hooks/useChatMessages';
 import MessageList from '../components/MessageList';
 import MessageComposer from '../components/MessageComposer';
+import PanelOverlay from '../components/PanelOverlay';
+import TaskTray from '../components/TaskTray';
+import SendPriorityAlertModal from '../components/SendPriorityAlertModal';
 import { MessageListSkeleton } from '../components/Skeleton';
-import type { Message, Task, Column } from '../types';
+import type { Message, Task } from '../types';
 
 // ── Pipeline mock data (no backend integration yet) ───────────────────────────
 interface PipelineDeal {
@@ -28,56 +31,6 @@ const INITIAL_PIPELINE: PipelineDeal[] = [
   { id: 'p2', company: 'Bright Solutions', detail: 'Growth Plan · 80 seats',      value: '$12,400', prob: '55% close probability', stage: 'qualified' },
   { id: 'p3', company: 'Meridian Labs',    detail: 'Starter Plan · 25 seats',     value: '$3,600',  prob: '90% close probability', stage: 'closing' },
 ];
-
-// ── Mini-Kanban panel ─────────────────────────────────────────────────────────
-function KanbanPanel({ columns }: { columns: Column[] }) {
-  const { setSelectedTask } = useBoardStore();
-  const getColor = (t: string) =>
-    /to.?do|todo|backlog/i.test(t) ? '#7C3AED' :
-    /progress|doing|active/i.test(t) ? '#D97706' :
-    /done|complete|shipped/i.test(t) ? '#0D9488' : '#7C3AED';
-
-  return (
-    <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3" style={{ scrollbarWidth: 'thin' }}>
-      {columns.map(col => (
-        <div key={col.id}>
-          <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: getColor(col.title) }}>{col.title}</span>
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#E5E7EB', color: '#9CA3AF' }}>{col.tasks.length}</span>
-          </div>
-          {col.tasks.map(task => (
-            <div key={task.id} className="rounded-lg p-2.5 mb-1.5 cursor-pointer transition-all"
-              style={{ background: '#F8F9FC', border: '1px solid #E5E7EB', borderLeft: `3px solid ${getColor(col.title)}` }}
-              onClick={() => setSelectedTask(task)}
-              onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)')}
-              onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
-            >
-              <div className="text-[13px] font-medium text-gray-900 mb-1.5 leading-snug">{task.title}</div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {task.priority && (
-                  <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={
-                    task.priority === 'high'   ? { background: '#FEE2E2', color: '#DC2626' } :
-                    task.priority === 'medium' ? { background: '#FEF3C7', color: '#D97706' } :
-                                                 { background: '#F0FDF4', color: '#16A34A' }
-                  }>{task.priority}</span>
-                )}
-                {task.due_date && (
-                  <span className="text-[11px] font-mono" style={{ color: '#9CA3AF' }}>
-                    {new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                )}
-                {task.assignees?.slice(0, 1).map(a => (
-                  <img key={a.id} src={a.avatar_url} className="w-5 h-5 rounded-full ml-auto flex-shrink-0" alt={a.name} title={a.name} />
-                ))}
-              </div>
-            </div>
-          ))}
-          {col.tasks.length === 0 && <div className="text-[12px] text-center py-2" style={{ color: '#D1D5DB' }}>No tasks</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Pipeline panel ────────────────────────────────────────────────────────────
 function PipelinePanel({ deals, onAddDeal }: { deals: PipelineDeal[]; onAddDeal: () => void }) {
@@ -166,9 +119,11 @@ export default function ChannelView() {
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [rightTab, setRightTab]       = useState<'tasks' | 'pipeline'>('tasks');
   const [pipeline, setPipeline]       = useState<PipelineDeal[]>(INITIAL_PIPELINE);
+  const [showTaskPanel, setShowTaskPanel] = useState(false);
+  const [showSendAlert, setShowSendAlert] = useState(false);
 
   const activeBoard  = boards[0];
-  const totalTasks   = columns.reduce((sum, c) => sum + c.tasks.length, 0);
+  const myTaskCount  = columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0);
   const canArchive   = user && !channel?.is_archived && (channel?.created_by === user.id || useWorkspaceStore.getState().isAdmin(user.id));
 
   useEffect(() => {
@@ -223,60 +178,91 @@ export default function ChannelView() {
     </Suspense>
   ) : selectedTask ? (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b flex-shrink-0 cursor-pointer transition-colors hover:bg-gray-50"
-        style={{ borderColor: '#E5E7EB' }} onClick={() => setSelectedTask(null)}>
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: '#7C3AED' }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-        <span className="text-[12.5px] font-medium" style={{ color: '#7C3AED' }}>Back to Task Board</span>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        <Suspense fallback={<div className="animate-pulse p-5 space-y-3"><div className="h-4 bg-gray-100 rounded w-3/4" /></div>}>
-          <TaskDetailPanel />
-        </Suspense>
-      </div>
+      <Suspense fallback={<div className="animate-pulse p-5 space-y-3"><div className="h-4 bg-gray-100 rounded w-3/4" /></div>}>
+        <TaskDetailPanel onBack={() => { setSelectedTask(null); setShowTaskPanel(true); }} />
+      </Suspense>
     </div>
-  ) : (
-    <>
-      <div className="flex items-center justify-between px-4 py-3.5 border-b flex-shrink-0" style={{ borderColor: '#E5E7EB' }}>
-        <h3 className="text-[14px] font-semibold text-gray-900">{rightTab === 'tasks' ? 'Task Board' : 'Opportunities Pipeline'}</h3>
-        <span className="text-[12px]" style={{ color: '#9CA3AF' }}>
-          {rightTab === 'tasks' ? `${totalTasks} total` : `${pipeline.length} active`}
-        </span>
-      </div>
-      {rightTab === 'tasks' ? <KanbanPanel columns={columns} /> : <PipelinePanel deals={pipeline} onAddDeal={handleAddPipelineDeal} />}
-    </>
-  );
+  ) : showTaskPanel ? (
+    rightTab === 'tasks'
+      ? <TaskTray columns={columns} userId={user?.id ?? ''} boardId={activeBoard?.id} onClose={() => setShowTaskPanel(false)} />
+      : <>
+          <div className="flex-shrink-0 border-b" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex items-center justify-between px-4 py-3">
+              <h3 className="text-[14px] font-semibold text-gray-900">Opportunities Pipeline</h3>
+              <button onClick={() => setShowTaskPanel(false)} className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <PipelinePanel deals={pipeline} onAddDeal={handleAddPipelineDeal} />
+        </>
+  ) : null;
 
   return (
     <div className="flex h-full relative">
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 flex-shrink-0 bg-white">
-          <div className="flex items-center gap-3">
-            <span className="text-gray-400 text-lg font-light">#</span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-semibold text-gray-900">{channel?.name || 'Loading…'}</h1>
-                {channel?.is_archived === 1 && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-gray-100 text-gray-500">Archived</span>}
-              </div>
-              <p className="text-xs text-gray-400">{channel?.is_private ? 'Private channel' : 'Public channel'}</p>
+        <div className="flex items-center justify-between flex-shrink-0"
+          style={{ padding: '22px 40px 18px', borderBottom: '1px solid var(--rule)', background: 'var(--paper)' }}>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span style={{ color: 'var(--faint)', fontWeight: 400, marginRight: 2 }}>#</span>
+              <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}>
+                {channel?.name || 'Loading…'}
+              </h1>
+              {channel?.is_archived === 1 && (
+                <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>
+                  Archived
+                </span>
+              )}
             </div>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {channel?.is_private ? 'Private channel' : 'Public channel'}
+            </p>
           </div>
-          <div className="flex items-center gap-2 ml-auto">
-            {(['tasks', 'pipeline'] as const).map(tab => (
-              <button key={tab} onClick={() => { setRightTab(tab); setActiveThreadId(null); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-all capitalize"
-                style={!activeThreadId && rightTab === tab
-                  ? { background: '#7C3AED', color: '#fff' }
-                  : { background: '#F8F9FC', color: '#6B7280' }
-                }
-              >
-                {tab === 'tasks' ? `Tasks (${totalTasks})` : `Pipeline (${pipeline.length})`}
-              </button>
-            ))}
+          <div className="flex items-baseline gap-6 ml-auto">
+            {(['tasks', 'pipeline'] as const).map(tab => {
+              const isActive = showTaskPanel && !activeThreadId && rightTab === tab;
+              return (
+                <button key={tab}
+                  onClick={() => {
+                    if (showTaskPanel && rightTab === tab && !activeThreadId) {
+                      setShowTaskPanel(false);
+                    } else {
+                      setShowTaskPanel(true);
+                      setRightTab(tab);
+                      setActiveThreadId(null);
+                    }
+                  }}
+                  style={{
+                    fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+                    color: isActive ? 'var(--ink)' : 'var(--muted)',
+                    borderBottom: `1px solid ${isActive ? 'var(--ink)' : 'transparent'}`,
+                    paddingBottom: 4, background: 'none',
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--ink)'; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--muted)'; }}
+                >
+                  {tab === 'tasks'
+                    ? `Tasks${myTaskCount > 0 ? ` · ${myTaskCount}` : ''}`
+                    : `Pipeline${pipeline.length > 0 ? ` · ${pipeline.length}` : ''}`}
+                </button>
+              );
+            })}
+            <button onClick={() => setShowSendAlert(true)}
+              style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)', textDecoration: 'none' }}
+              onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+              onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>
+              Alert
+            </button>
             {canArchive && (
-              <button onClick={handleArchive} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100 ml-2">
+              <button onClick={handleArchive}
+                style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}
+                onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+              >
                 Archive
               </button>
             )}
@@ -284,13 +270,14 @@ export default function ChannelView() {
         </div>
 
         {/* Message list */}
-        <div className="flex-1 overflow-y-auto py-4 space-y-0.5">
+        <div className="flex-1 overflow-y-auto space-y-0" style={{ padding: '22px 0 8px' }}>
           {loading && <MessageListSkeleton count={7} />}
           {!loading && messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-center px-6">
-              <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3"><span className="text-2xl">#</span></div>
-              <h3 className="font-semibold text-gray-900 mb-1">Welcome to #{channel?.name}!</h3>
-              <p className="text-sm text-gray-500">This is the beginning of the channel. Say hello! 👋</p>
+            <div className="flex flex-col items-center justify-center h-full text-center px-10">
+              <p style={{ fontSize: 13, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 8 }}>
+                #{channel?.name}
+              </p>
+              <p style={{ fontSize: 15, color: 'var(--ink-2)' }}>Beginning of channel. Say hello!</p>
             </div>
           )}
           <MessageList
@@ -308,11 +295,11 @@ export default function ChannelView() {
         </div>
 
         {/* Compose */}
-        <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
+        <div className="flex-shrink-0" style={{ padding: '18px 40px 26px', borderTop: '1px solid var(--rule)' }}>
           {channel?.is_archived ? (
-            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-center text-sm text-gray-400">
+            <p style={{ fontSize: 13, color: 'var(--faint)', fontStyle: 'italic', textAlign: 'center' }}>
               This channel is archived — read-only.
-            </div>
+            </p>
           ) : (
             <MessageComposer value={content} onChange={handleContentChange} onSubmit={handleSend}
               placeholder={`Message #${channel?.name || ''}…`} members={members} />
@@ -320,17 +307,10 @@ export default function ChannelView() {
         </div>
       </div>
 
-      {/* Right panel slot */}
-      <>
-        <div className="hidden xl:flex flex-col flex-shrink-0 border-l" style={{ width: 320, background: '#FFFFFF', borderColor: '#E5E7EB' }}>
-          {panelContent}
-        </div>
-        {threadMsg && (
-          <div className="xl:hidden absolute right-0 top-0 h-full z-20 flex flex-col border-l bg-white shadow-xl animate-slide-in" style={{ width: 320, borderColor: '#E5E7EB' }}>
-            {panelContent}
-          </div>
-        )}
-      </>
+      {/* Right panel — absolute overlay so messages never shift */}
+      {(threadMsg || selectedTask || showTaskPanel) && (
+        <PanelOverlay>{panelContent}</PanelOverlay>
+      )}
 
       {showCreateTask && activeBoard && (
         <Suspense fallback={null}>
@@ -342,6 +322,7 @@ export default function ChannelView() {
           <ShareModal message={shareMsg} onClose={() => setShareMsg(null)} />
         </Suspense>
       )}
+      {showSendAlert && <SendPriorityAlertModal onClose={() => setShowSendAlert(false)} />}
     </div>
   );
 }

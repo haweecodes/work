@@ -1,13 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  * {
-    box-sizing: border-box;
+  :root {
+    --paper:   #F8F7F3;
+    --paper-2: #F2F1EC;
+    --ink:     #17171B;
+    --ink-2:   #2F2F33;
+    --muted:   #6E6E72;
+    --faint:   #A0A09C;
+    --rule:    #E5E3DD;
+    --rule-2:  #EFEEE9;
+    --danger:  #A8332A;
   }
+
+  * { box-sizing: border-box; }
 
   html, body, #root {
     height: 100%;
@@ -16,82 +24,122 @@
   }
 
   body {
-    @apply font-sans bg-surface text-gray-900 antialiased;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
     font-size: 14px;
+    line-height: 1.5;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
+  ::selection { background: var(--ink); color: var(--paper); }
 
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    @apply bg-gray-200 rounded-full;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-300;
-  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 0; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 }
 
 @layer components {
+  /* ── Buttons: quiet at rest, clear on intent ── */
+
+  /* Primary action (save, confirm, submit) */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg font-medium text-sm
-           hover:bg-primary-600 active:bg-primary-700 transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-1;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 13px; font-weight: 400; color: var(--ink);
+    text-decoration: none; letter-spacing: -0.005em;
+    background: none; border: none; padding: 4px 0; cursor: pointer;
+    font-family: inherit;
   }
+  .btn-primary:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .btn-primary:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+  .btn-primary:disabled { color: var(--faint); cursor: not-allowed; }
 
+  /* Ghost / cancel — quieter at rest, shows intent on hover */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-gray-600 rounded-lg text-sm font-medium
-           hover:bg-gray-100 active:bg-gray-200 transition-colors duration-150 focus:outline-none;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 13px; font-weight: 400; color: var(--muted);
+    text-decoration: none;
+    background: none; border: none; padding: 4px 0; cursor: pointer;
+    font-family: inherit;
   }
+  .btn-ghost:hover { color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .btn-ghost:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+  .btn-ghost:disabled { color: var(--faint); cursor: not-allowed; }
 
+  /* Danger — muted at rest so it doesn't alarm; color + underline on hover = clear intent */
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg font-medium text-sm
-           hover:bg-red-600 active:bg-red-700 transition-colors duration-150 focus:outline-none;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 13px; font-weight: 400; color: var(--muted);
+    text-decoration: none;
+    background: none; border: none; padding: 4px 0; cursor: pointer;
+    font-family: inherit;
   }
+  .btn-danger:hover { color: var(--danger); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .btn-danger:focus-visible { outline: 1px solid var(--danger); outline-offset: 3px; }
+  .btn-danger:disabled { color: var(--faint); cursor: not-allowed; }
 
+  /* Global focus ring for keyboard navigation */
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; }
+
+  /* ── Input: bottom-border only ── */
   .input {
-    @apply w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400
-           focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all duration-150;
+    width: 100%; font-size: 15px; color: var(--ink);
+    padding: 4px 0;
+    border: none; border-bottom: 1px solid var(--rule);
+    background: transparent; border-radius: 0;
+    letter-spacing: -0.005em;
+    font-family: inherit;
   }
+  .input:focus { border-bottom-color: var(--ink); outline: none; }
+  .input::placeholder { color: var(--faint); }
 
+  /* ── Label: uppercase caption ── */
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+    display: block; font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--faint);
+    margin-bottom: 8px; font-weight: 500;
   }
 
-  .card {
-    @apply bg-white rounded-xl shadow-card border border-gray-100;
+  /* ── Card: borderless flat ── */
+  .card { background: var(--paper); border: 1px solid var(--rule); border-radius: 0; }
+
+  /* ── Priority badges: minimal text ── */
+  .badge-priority-low      { color: var(--faint);  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .badge-priority-medium   { color: var(--ink-2);  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .badge-priority-high     { color: var(--ink);    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500; }
+  .badge-priority-critical { color: var(--danger); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500; }
+
+  /* ── Nav active dash indicator ── */
+  .nav-active-dash::before {
+    content: "";
+    display: inline-block;
+    width: 6px; height: 1px;
+    background: var(--ink);
+    margin-right: 6px;
+    vertical-align: middle;
+    transform: translateY(-2px);
   }
-
-  .badge-priority-low    { @apply text-emerald-700 bg-emerald-50 border border-emerald-200; }
-  .badge-priority-medium { @apply text-amber-700 bg-amber-50 border border-amber-200; }
-  .badge-priority-high   { @apply text-orange-700 bg-orange-50 border border-orange-200; }
-  .badge-priority-critical { @apply text-red-700 bg-red-50 border border-red-200; }
-
-  /* DM Sans utility */
-  .font-dm { font-family: 'DM Sans', system-ui, sans-serif; }
-
-  /* Dark sidebar scrollbar */
-  .font-dm ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12) !important; }
-  .font-dm ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22) !important; }
 }
 
 @keyframes fadeInScale {
-  from { opacity: 0; transform: scale(0.95) translateY(4px); }
-  to   { opacity: 1; transform: scale(1)   translateY(0); }
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
 }
 
 @keyframes msgHighlight {
-  0%   { background-color: rgb(254 243 199); } /* amber-100 */
-  70%  { background-color: rgb(254 243 199); }
+  0%   { background-color: var(--paper-2); }
+  70%  { background-color: var(--paper-2); }
   100% { background-color: transparent; }
 }
 
 .msg-highlight {
   animation: msgHighlight 2.5s ease-out forwards;
-  border-radius: 0.5rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(1.4); }
 }

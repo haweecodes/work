@@ -6,6 +6,7 @@ import useNotificationStore from '../store/notificationStore';
 import useBoardStore from '../store/boardStore';
 import useUIStore from '../store/uiStore';
 import Sidebar from '../components/Sidebar/Sidebar';
+import PriorityAlertBanner from '../components/PriorityAlertBanner';
 
 // Only loaded when user opens a task — keeps initial bundle smaller
 const TaskDetailPanel  = lazy(() => import('../components/TaskDetailPanel'));
@@ -68,8 +69,8 @@ export default function AppLayout() {
   }, []);
 
   useEffect(() => {
-    if (user) fetchNotifications(user.id);
-  }, [user?.id]);
+    if (user && currentWorkspace) fetchNotifications(user.id, currentWorkspace.id);
+  }, [user?.id, currentWorkspace?.id]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
@@ -89,6 +90,7 @@ export default function AppLayout() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <PriorityAlertBanner />
         {/* Mobile header */}
         <div className="flex md:hidden items-center gap-3 px-4 py-3 border-b border-gray-200 bg-white">
           <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600">
@@ -115,8 +117,8 @@ export default function AppLayout() {
           TaskDetailPanel itself, so we only mount the desktop sidebar elsewhere. */}
       {selectedTask && (
         <>
-          {/* Desktop: sidebar panel — suppressed on /channel/* (handled by ChannelView) */}
-          <div className={`w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in ${location.pathname.startsWith('/channel/') ? 'hidden' : 'hidden lg:block'}`}>
+          {/* Desktop: sidebar panel — suppressed on /channel/* and /dm/* (those views handle their own panel) */}
+          <div className={`w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in ${location.pathname.startsWith('/channel/') || location.pathname.startsWith('/dm/') ? 'hidden' : 'hidden lg:block'}`}>
             <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
               <TaskDetailPanel />
             </Suspense>

@@ -433,14 +433,15 @@ export default function BoardView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface">
+    <div className="flex flex-col h-full" style={{ background: 'var(--paper)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white flex-shrink-0">
+      <div className="flex items-center justify-between flex-shrink-0"
+        style={{ padding: '22px 40px 18px', borderBottom: '1px solid var(--rule)', background: 'var(--paper)' }}>
         <div>
           {editingName ? (
             <input
               autoFocus
-              className="font-semibold text-gray-900 text-base border-b-2 border-primary-400 outline-none bg-transparent px-0.5 -mx-0.5 w-64"
+              style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)', background: 'transparent', border: 'none', borderBottom: '1px solid var(--ink)', outline: 'none', width: 280, fontFamily: 'inherit' }}
               value={nameValue}
               onChange={e => setNameValue(e.target.value)}
               onBlur={submitNameEdit}
@@ -450,35 +451,33 @@ export default function BoardView() {
               }}
             />
           ) : (
-            <button
-              onClick={handleNameEdit}
-              className="group flex items-center gap-1.5 font-semibold text-gray-900 hover:text-primary-600 transition-colors"
-              title="Click to rename"
-            >
+            <button onClick={handleNameEdit} title="Click to rename"
+              style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink-2)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink)')}>
               {board?.name || 'Board'}
-              <svg className="w-3 h-3 text-gray-300 group-hover:text-primary-400 transition-colors opacity-0 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
             </button>
           )}
-          <p className="text-xs text-gray-400">
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
             {columns.reduce((acc, c) => acc + (c.tasks?.length ?? 0), 0)} tasks
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="input text-xs py-1.5 pl-8 w-48 border-gray-200 shadow-sm focus:ring-primary-500 focus:border-primary-500"
-            />
-            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="flex items-baseline gap-6">
+          <div className="relative flex items-baseline">
+            <svg className="w-3.5 h-3.5 absolute left-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--faint)', top: '50%', transform: 'translateY(-50%)' }}>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
+            <input
+              type="text"
+              placeholder="Search"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ fontSize: 13, color: 'var(--ink)', background: 'transparent', border: 'none', borderBottom: '1px solid var(--rule)', outline: 'none', paddingLeft: 20, paddingBottom: 2, width: 140, fontFamily: 'inherit' }}
+              onFocus={e => (e.currentTarget.style.borderBottomColor = 'var(--ink)')}
+              onBlur={e => (e.currentTarget.style.borderBottomColor = 'var(--rule)')}
+            />
           </div>
-          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary text-xs px-3 py-1.5 shadow-sm">
+          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary">
             + New task
           </button>
         </div>
@@ -493,7 +492,7 @@ export default function BoardView() {
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 h-full">
+          <div className="flex gap-4 h-full min-w-max">
             {columns.map(col => {
               const filteredCol = {
                 ...col,

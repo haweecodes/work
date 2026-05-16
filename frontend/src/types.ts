@@ -131,5 +131,9 @@ export interface Notification {
   reference_type?: string;
   message?: string;
   is_read: number;
+  is_resolved?: number;
+  sender_name?: string;
+  sender_avatar?: string;
+  workspace_id?: string;
   created_at: string;
 }

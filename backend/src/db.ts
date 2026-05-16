@@ -14,6 +14,10 @@ export async function initDb(): Promise<void> {
     await sql`SELECT 1`;
     // Safe schema migrations — IF NOT EXISTS means these are idempotent
     await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_resolved INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS sender_name TEXT`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS sender_avatar TEXT`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS workspace_id TEXT`;
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {
     console.error('❌ Database connection failed:', err);

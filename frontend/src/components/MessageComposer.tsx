@@ -1,14 +1,6 @@
 import { useRef, forwardRef, useImperativeHandle, useState, useEffect } from 'react';
 import type { Member } from '../types';
 
-/* ─── Icons ──────────────────────────────────────────────────────────────── */
-
-const SendIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-  </svg>
-);
-
 /* ─── Auto-resize helper ──────────────────────────────────────────────────── */
 
 function autoResize(el: HTMLTextAreaElement) {
@@ -48,7 +40,6 @@ interface MessageComposerProps {
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   className?: string;
   compact?: boolean;
-  /** Workspace members to power @mention autocomplete */
   members?: Member[];
 }
 
@@ -80,7 +71,6 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       const { text, newCursor } = replaceMention(value, el.selectionStart, member.name);
       onChange(text);
       setMentionQuery(null);
-      // Restore cursor after React re-render
       requestAnimationFrame(() => {
         el.focus();
         el.setSelectionRange(newCursor, newCursor);
@@ -111,83 +101,113 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       setMentionIndex(0);
     };
 
-    // Reset mention index when query changes
     useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
 
     const mentionDropdown = showMention && (
       <div
-        className="absolute bottom-full left-0 mb-1.5 w-56 rounded-xl border bg-white shadow-lg overflow-hidden z-20 animate-fade-in"
-        style={{ borderColor: '#E5E7EB' }}
+        className="absolute bottom-full left-0 mb-2 w-56 overflow-hidden z-20 animate-fade-in"
+        style={{ background: 'var(--paper)', border: '1px solid var(--rule)' }}
       >
         {filteredMembers.map((m, i) => (
           <button
             key={m.id}
             type="button"
             onMouseDown={e => { e.preventDefault(); selectMention(m); }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
             style={{
-              background: i === mentionIndex ? '#EDE9FE' : 'transparent',
-              color: i === mentionIndex ? '#7C3AED' : '#374151',
+              background: i === mentionIndex ? 'var(--paper-2)' : 'transparent',
+              color: i === mentionIndex ? 'var(--ink)' : 'var(--ink-2)',
             }}
             onMouseEnter={() => setMentionIndex(i)}
           >
             {m.avatar_url
-              ? <img src={m.avatar_url} className="w-6 h-6 rounded-full flex-shrink-0" alt={m.name} />
-              : <div className="w-6 h-6 rounded-full flex-shrink-0 bg-violet-100 flex items-center justify-center text-[10px] font-bold text-violet-600">{m.name[0]}</div>
+              ? <img src={m.avatar_url} className="w-5 h-5 rounded-full flex-shrink-0" alt={m.name} />
+              : <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center"
+                  style={{ background: 'var(--rule-2)', fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>
+                  {m.name[0]}
+                </div>
             }
-            <span className="text-[13px] font-medium truncate">{m.name}</span>
+            <span style={{ fontSize: 13, fontWeight: i === mentionIndex ? 500 : 400 }} className="truncate">{m.name}</span>
           </button>
         ))}
       </div>
     );
+
+    const textareaStyle = {
+      fontSize: 15,
+      color: 'var(--ink)',
+      letterSpacing: '-0.005em',
+      background: 'transparent',
+      border: 'none',
+      borderBottom: '1px solid var(--rule)',
+      outline: 'none',
+      resize: 'none' as const,
+      width: '100%',
+      minHeight: 36,
+      maxHeight: 128,
+      padding: '6px 0 10px',
+      lineHeight: 1.5,
+      fontFamily: 'inherit',
+    };
 
     /* ── inline variant (ThreadPanel) ──────────────────────────────────── */
     if (variant === 'inline') {
       return (
         <form onSubmit={onSubmit} className={`relative ${className}`}>
           {mentionDropdown}
-          <textarea
-            ref={textareaRef}
-            className={`input resize-none w-full bg-white pr-12 py-3 min-h-[44px] max-h-32`}
-            placeholder={placeholder}
-            value={value}
-            rows={1}
-            style={{ height: 'auto' }}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-          />
-          <button
-            type="submit"
-            disabled={!value.trim()}
-            className={`absolute ${compact ? 'right-2 bottom-2 p-1.5' : 'right-2.5 bottom-2.5 p-1.5'} rounded-md text-primary-600 hover:bg-primary-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed`}
-          >
-            <SendIcon />
-          </button>
+          <div className="flex items-baseline gap-3" style={{ borderBottom: '1px solid var(--rule)' }}
+            onFocus={e => (e.currentTarget.style.borderBottomColor = 'var(--ink)')}
+            onBlur={e => (e.currentTarget.style.borderBottomColor = 'var(--rule)')}>
+            <textarea
+              ref={textareaRef}
+              style={{ ...textareaStyle, flex: 1, border: 'none', borderBottom: 'none', padding: '6px 0' }}
+              placeholder={placeholder}
+              value={value}
+              rows={1}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+            />
+            <button
+              type="submit"
+              disabled={!value.trim()}
+              className="btn-primary flex-shrink-0"
+              style={{ paddingBottom: 8 }}
+            >
+              Send →
+            </button>
+          </div>
         </form>
       );
     }
 
     /* ── row variant (ChannelView / DMView) ─────────────────────────────── */
     return (
-      <form onSubmit={onSubmit} className={`relative flex items-center gap-3 ${className}`}>
+      <form onSubmit={onSubmit} className={`relative ${className}`}>
         {mentionDropdown}
-        <textarea
-          ref={textareaRef}
-          className="input flex-1 resize-none py-3 min-h-[44px] max-h-32"
-          placeholder={placeholder}
-          value={value}
-          rows={1}
-          style={{ height: 'auto', minHeight: '44px' }}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-        />
-        <button
-          type="submit"
-          disabled={!value.trim()}
-          className="btn-primary px-4 py-2.5 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <SendIcon />
-        </button>
+        <div className="flex items-baseline gap-4"
+          style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 10 }}>
+          <textarea
+            ref={textareaRef}
+            style={{ ...textareaStyle, flex: 1, border: 'none', borderBottom: 'none', padding: '4px 0' }}
+            placeholder={placeholder}
+            value={value}
+            rows={1}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+          />
+          <button
+            type="submit"
+            disabled={!value.trim()}
+            className="btn-primary flex-shrink-0"
+          >
+            Send →
+          </button>
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--faint)', marginTop: 8, letterSpacing: '0.02em' }}>
+          <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>↵</kbd>
+          {' '}to send · <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>Shift↵</kbd>
+          {' '}for newline
+        </p>
       </form>
     );
   },

@@ -11,7 +11,7 @@ import channelRoutes, { setIo as setChannelIo } from './routes/channels';
 import boardRoutes from './routes/boards';
 import taskRoutes, { setIo as setTaskIo } from './routes/tasks';
 import dmRoutes, { setIo as setDmIo } from './routes/dms';
-import notificationRoutes from './routes/notifications';
+import notificationRoutes, { setIo as setNotifIo } from './routes/notifications';
 import searchRoutes from './routes/search';
 
 const app = express();
@@ -43,6 +43,7 @@ setWorkspaceIo(io);
 setChannelIo(io);
 setTaskIo(io);
 setDmIo(io);
+setNotifIo(io);
 
 // Routes
 app.use('/api/auth', authRoutes);

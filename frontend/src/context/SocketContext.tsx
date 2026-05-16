@@ -1,4 +1,4 @@
-import { createContext, useEffect, useRef, type ReactNode, type MutableRefObject } from 'react';
+import { createContext, useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import useAuthStore from '../store/authStore';
 import useNotificationStore from '../store/notificationStore';
@@ -7,12 +7,13 @@ import useWorkspaceStore from '../store/workspaceStore';
 import useUIStore from '../store/uiStore';
 import type { Notification, Task, Message } from '../types';
 
-const SocketContext = createContext<MutableRefObject<Socket | null> | null>(null);
+const SocketContext = createContext<RefObject<Socket | null> | null>(null);
 
 export function SocketProvider({ children }: { children: ReactNode }) {
   const socketRef = useRef<Socket | null>(null);
   const user = useAuthStore(s => s.user);
-  const addNotification = useNotificationStore(s => s.addNotification);
+  const addNotification  = useNotificationStore(s => s.addNotification);
+  const addPriorityAlert = useNotificationStore(s => s.addPriorityAlert);
   const updateTaskInColumn = useBoardStore(s => s.updateTaskInColumn);
   const removeTask = useBoardStore(s => s.removeTask);
   const channels = useWorkspaceStore(s => s.channels);
@@ -45,6 +46,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         created_at: new Date().toISOString(),
         ...partial,
       });
+    });
+
+    socket.on('priority_alert', (payload: Notification) => {
+      const { currentWorkspace } = useWorkspaceStore.getState();
+      if (payload.workspace_id && currentWorkspace && payload.workspace_id !== currentWorkspace.id) return;
+      addPriorityAlert({ ...payload, user_id: user.id });
     });
 
     socket.on('member_joined', (member: any) => {

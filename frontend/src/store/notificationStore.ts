@@ -5,8 +5,11 @@ import type { Notification } from '../types';
 interface NotificationState {
   notifications: Notification[];
   unreadCount: number;
-  fetchNotifications: (userId: string) => Promise<void>;
+  priorityAlerts: Notification[];
+  fetchNotifications: (userId: string, workspaceId?: string) => Promise<void>;
   addNotification: (notif: Notification) => void;
+  addPriorityAlert: (alert: Notification) => void;
+  resolveAlert: (id: string) => Promise<void>;
   markAllRead: (userId: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
 }
@@ -14,18 +17,49 @@ interface NotificationState {
 const useNotificationStore = create<NotificationState>((set) => ({
   notifications: [],
   unreadCount: 0,
+  priorityAlerts: [],
 
-  fetchNotifications: async (userId: string) => {
-    const { data } = await client.get<Notification[]>(`/api/notifications/${userId}`);
-    set({ notifications: data, unreadCount: data.filter(n => !n.is_read).length });
+  fetchNotifications: async (userId: string, workspaceId?: string) => {
+    const url = workspaceId
+      ? `/api/notifications/${userId}?workspace_id=${workspaceId}`
+      : `/api/notifications/${userId}`;
+    const { data } = await client.get<Notification[]>(url);
+    // Unresolved priority alerts → blocking banner queue
+    const alerts = data.filter(n => n.type === 'priority_alert' && !n.is_resolved);
+    // Everything else (incl. resolved priority alerts) → notification panel
+    const regular = data.filter(n => n.type !== 'priority_alert' || !!n.is_resolved);
+    set({
+      notifications: regular,
+      unreadCount: regular.filter(n => !n.is_read).length,
+      priorityAlerts: alerts,
+    });
   },
 
   addNotification: (notif: Notification) => {
-    if (notif.type === 'dm') return; // DM messages are tracked via sidebar unread count, not notifications
+    if (notif.type === 'dm' || notif.type === 'priority_alert') return;
     set((s) => ({
       notifications: [notif, ...s.notifications],
       unreadCount: s.unreadCount + 1,
     }));
+  },
+
+  addPriorityAlert: (alert: Notification) => {
+    if (alert.type !== 'priority_alert') return;
+    set((s) => ({ priorityAlerts: [alert, ...s.priorityAlerts] }));
+  },
+
+  resolveAlert: async (id: string) => {
+    await client.patch(`/api/notifications/${id}/resolve`);
+    set((s) => {
+      const resolved = s.priorityAlerts.find(a => a.id === id);
+      return {
+        priorityAlerts: s.priorityAlerts.filter(a => a.id !== id),
+        // Fold the resolved alert into regular notifications as an audit entry
+        notifications: resolved
+          ? [{ ...resolved, is_resolved: 1, is_read: 1 }, ...s.notifications]
+          : s.notifications,
+      };
+    });
   },
 
   markAllRead: async (_userId: string) => {

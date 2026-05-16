@@ -6,23 +6,43 @@ import client from '../api/client';
 import { formatDistanceToNow } from 'date-fns';
 import type { Notification } from '../types';
 
-const TYPE_ICONS: Record<string, string> = {
-  mention: '💬',
-  task_assigned: '✅',
-  task_due: '⏰',
+// Priority tier: higher = more urgent
+const PRIORITY: Record<string, number> = {
+  task_due:      3,
+  mention:       2,
+  task_assigned: 1,
+};
+
+// Left-border accent per type (quiet but distinct)
+const TYPE_ACCENT: Record<string, string> = {
+  task_due:       'var(--danger)',
+  mention:        '#C47B2A',
+  task_assigned:  'var(--ink-2)',
+  priority_alert: 'var(--rule)',   // resolved — grey, history only
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  task_due:       'Due',
+  mention:        '@Mention',
+  task_assigned:  'Task',
+  priority_alert: '✓ Alert',       // resolved priority alert
+};
+
+const TYPE_LABEL_COLOR: Record<string, string> = {
+  task_due:       'var(--danger)',
+  mention:        '#C47B2A',
+  task_assigned:  'var(--muted)',
+  priority_alert: 'var(--faint)',  // resolved — very muted
 };
 
 export default function NotificationPanel({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
-  const { notifications, unreadCount, markAllRead, markRead, fetchNotifications } = useNotificationStore();
+  const { notifications, unreadCount, markAllRead, markRead } = useNotificationStore();
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Re-fetch on every open so missed socket events don't leave stale badge counts
-  useEffect(() => {
-    if (user) fetchNotifications(user.id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Notifications are loaded by AppLayout on mount — no refetch here
+  // so opening the panel never triggers the priority alert overlay
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -35,60 +55,124 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
   async function handleNotifClick(n: Notification) {
     markRead(n.id);
     onClose();
-
     if ((n.type === 'task_assigned' || n.type === 'task_due') && n.reference_id) {
       try {
         const { data } = await client.get<{ board_id: string; task_key: string }>(
           `/api/tasks/detail/${n.reference_id}`
         );
         navigate(`/board/${data.board_id}?taskKey=${data.task_key}`);
-      } catch {
-        // task may have been deleted — navigate silently
-      }
+      } catch { /* task deleted */ }
       return;
     }
-
     if (n.type === 'mention' && n.reference_type === 'channel' && n.reference_id) {
       navigate(`/channel/${n.reference_id}`);
     }
   }
 
+  // Sort by priority tier (urgent first), then by date
+  const sorted = [...notifications].sort((a, b) => {
+    const pa = PRIORITY[a.type] ?? 0;
+    const pb = PRIORITY[b.type] ?? 0;
+    if (pb !== pa) return pb - pa;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+
   return (
-    <div ref={panelRef} className="bg-white rounded-xl shadow-dropdown border border-gray-100 py-2 animate-fade-in max-h-96 overflow-y-auto">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
-        <span className="font-semibold text-sm text-gray-900">Notifications</span>
-        {unreadCount > 0 && user && (
-          <button onClick={() => markAllRead(user.id)} className="text-xs text-primary-600 hover:underline font-medium">
-            Mark all read
+    <div
+      ref={panelRef}
+      className="flex flex-col h-full"
+    >
+      {/* Header */}
+      <div className="flex items-baseline justify-between px-5 py-4 flex-shrink-0"
+        style={{ borderBottom: '1px solid var(--rule)' }}>
+        <div className="flex items-center gap-2">
+          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--faint)' }}>
+            Notifications
+          </span>
+          {unreadCount > 0 && (
+            <span style={{
+              fontSize: 10, fontWeight: 600,
+              color: 'var(--paper)', background: 'var(--danger)',
+              minWidth: 18, height: 18, display: 'inline-flex',
+              alignItems: 'center', justifyContent: 'center', padding: '0 5px',
+            }}>
+              {unreadCount}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          {unreadCount > 0 && user && (
+            <button onClick={() => markAllRead(user.id)}
+              style={{ fontSize: 11, color: 'var(--muted)', textDecoration: 'none' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'underline'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.textDecoration = 'none'; }}>
+              Mark all read
+            </button>
+          )}
+          <button onClick={onClose}
+            style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--faint)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}>
+            Close
           </button>
-        )}
+        </div>
       </div>
 
-      {notifications.length === 0 ? (
-        <div className="px-4 py-8 text-center">
-          <p className="text-2xl mb-1">🔔</p>
-          <p className="text-sm text-gray-500">All caught up!</p>
-        </div>
-      ) : (
-        <div>
-          {notifications.map(n => (
-            <button key={n.id} onClick={() => handleNotifClick(n)}
-              className="w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-              style={!n.is_read ? { background: 'rgba(238,242,255,0.6)' } : undefined}>
-              <span className="text-base flex-shrink-0 mt-0.5">{TYPE_ICONS[n.type] || '🔔'}</span>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm leading-snug ${!n.is_read ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>
-                  {n.message}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
-                </p>
-              </div>
-              {!n.is_read && <div className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0 mt-1.5" />}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+        {sorted.length === 0 ? (
+          <div className="px-5 py-8 text-center">
+            <p style={{ fontSize: 13, color: 'var(--faint)', fontStyle: 'italic' }}>All caught up</p>
+          </div>
+        ) : (
+          sorted.map(n => {
+            const accent = TYPE_ACCENT[n.type] ?? 'transparent';
+            const label  = TYPE_LABEL[n.type];
+            const labelColor = TYPE_LABEL_COLOR[n.type] ?? 'var(--faint)';
+            const isUnread = !n.is_read;
+
+            return (
+              <button
+                key={n.id}
+                onClick={() => handleNotifClick(n)}
+                className="w-full text-left flex gap-0"
+                style={{
+                  borderBottom: '1px solid var(--rule-2)',
+                  background: isUnread ? 'var(--paper-2)' : 'transparent',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
+                onMouseLeave={e => (e.currentTarget.style.background = isUnread ? 'var(--paper-2)' : 'transparent')}
+              >
+                {/* Priority accent bar */}
+                <span style={{ width: 3, flexShrink: 0, background: isUnread ? accent : 'transparent', alignSelf: 'stretch' }} />
+
+                <div className="flex-1 min-w-0 px-4 py-3">
+                  {/* Type label + timestamp */}
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    {label && (
+                      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
+                        {label}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 11, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', marginLeft: 'auto', flexShrink: 0 }}>
+                      {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                    </span>
+                  </div>
+
+                  {/* Message */}
+                  <p style={{
+                    fontSize: 13,
+                    color: isUnread ? 'var(--ink)' : 'var(--ink-2)',
+                    fontWeight: isUnread ? 500 : 400,
+                    lineHeight: 1.45,
+                  }}>
+                    {n.message}
+                  </p>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

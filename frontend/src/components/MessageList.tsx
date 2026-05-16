@@ -20,16 +20,27 @@ export default function MessageList({ messages, typingUsers = {}, ...cb }: Props
     <>
       {messages.map((msg, i) => {
         const prev = messages[i - 1];
+        const next = messages[i + 1];
+
         const isContinuation = !!prev
           && !msg.is_system && !prev.is_system
           && !msg.deleted  && !prev.deleted
           && msg.sender_id === prev.sender_id
           && (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) < CONTINUATION_MS;
+
+        // End of a group when the next message is NOT a continuation of this one
+        const isGroupEnd = !next
+          || !!next.is_system || !!next.deleted
+          || next.sender_id !== msg.sender_id
+          || !!msg.is_system  || !!msg.deleted
+          || (new Date(next.created_at).getTime() - new Date(msg.created_at).getTime()) >= CONTINUATION_MS;
+
         return (
           <MessageBubble
             key={msg.id}
             msg={msg}
             isContinuation={isContinuation}
+            isGroupEnd={isGroupEnd}
             onCreateTask={cb.onCreateTask}
             onTaskLinked={cb.onTaskLinked}
             onMessageUpdated={cb.onMessageUpdated}
