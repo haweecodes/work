@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useNotificationStore from '../store/notificationStore';
 import useAuthStore from '../store/authStore';
@@ -8,9 +8,11 @@ import type { Notification } from '../types';
 
 // Priority tier: higher = more urgent
 const PRIORITY: Record<string, number> = {
-  task_due:      3,
-  mention:       2,
-  task_assigned: 1,
+  task_due:            3,
+  mention:             2,
+  task_update_request: 2,
+  task_assigned:       1,
+  task_update_response: 1,
 };
 
 const MENTION_PRIORITY_COLORS: Record<string, string> = {
@@ -26,10 +28,12 @@ const TYPE_ACCENT: Record<string, string> = {
 };
 
 const TYPE_LABEL: Record<string, string> = {
-  task_due:       'Due',
-  mention:        '@Mention',
-  task_assigned:  'Task',
-  priority_alert: '✓ Alert',       // resolved priority alert
+  task_due:             'Due',
+  mention:              '@Mention',
+  task_assigned:        'Task',
+  priority_alert:       '✓ Alert',
+  task_update_request:  'Update Request',
+  task_update_response: 'Update',
 };
 
 const TYPE_LABEL_COLOR: Record<string, string> = {
@@ -38,6 +42,166 @@ const TYPE_LABEL_COLOR: Record<string, string> = {
   task_assigned:  'var(--muted)',
   priority_alert: 'var(--faint)',  // resolved — very muted
 };
+
+const UPDATE_STATUS_COLORS: Record<string, string> = {
+  on_track: 'var(--ink)', delayed: '#C47B2A', finished: 'var(--ink)', cancelled: 'var(--faint)',
+};
+
+function NotificationList({ notifications, onNotifClick, markRead }: {
+  notifications: Notification[];
+  onNotifClick: (n: Notification) => void;
+  markRead: (id: string) => void;
+}) {
+  const [delayedId, setDelayedId] = useState<string | null>(null);
+  const [delayReason, setDelayReason] = useState('');
+  // Track in-flight submissions and locally-responded IDs (so they update immediately
+  // before the store re-renders with is_read=1)
+  const [submitting, setSubmitting] = useState<Set<string>>(new Set());
+  const [respondedIds, setRespondedIds] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const submitResponse = async (n: Notification, status: string, reason?: string) => {
+    if (!n.extra_id || !n.reference_id) {
+      setErrors(e => ({ ...e, [n.id]: 'Missing request data — try reloading the panel.' }));
+      return;
+    }
+    setSubmitting(prev => new Set(prev).add(n.id));
+    setErrors(e => { const next = { ...e }; delete next[n.id]; return next; });
+    try {
+      await client.post(`/api/task-updates/${n.extra_id}/respond`, {
+        task_id: n.reference_id, status, reason: reason || undefined,
+      });
+      // Mark locally as responded so buttons disappear immediately
+      setRespondedIds(prev => new Set(prev).add(n.id));
+      markRead(n.id);
+      setDelayedId(null);
+      setDelayReason('');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? 'Failed to send — try again.';
+      setErrors(e => ({ ...e, [n.id]: msg }));
+    } finally {
+      setSubmitting(prev => { const s = new Set(prev); s.delete(n.id); return s; });
+    }
+  };
+
+  return (
+    <>
+      {notifications.map(n => {
+        const accent = TYPE_ACCENT[n.type] ?? 'transparent';
+        const label  = TYPE_LABEL[n.type];
+        const labelColor = TYPE_LABEL_COLOR[n.type] ?? 'var(--faint)';
+        const isUnread = !n.is_read;
+        // Show response buttons only for unread, non-responded update requests
+        const showResponseButtons = n.type === 'task_update_request' && isUnread && !respondedIds.has(n.id);
+        const isBusy = submitting.has(n.id);
+
+        const header = (
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            {label && (
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
+                {label}
+              </span>
+            )}
+            {n.type === 'mention' && n.priority && MENTION_PRIORITY_COLORS[n.priority] && (
+              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: MENTION_PRIORITY_COLORS[n.priority] }}>
+                {n.priority}
+              </span>
+            )}
+            <span style={{ fontSize: 11, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', marginLeft: 'auto', flexShrink: 0 }}>
+              {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+            </span>
+          </div>
+        );
+
+        const messageEl = (
+          <p style={{ fontSize: 13, color: isUnread ? 'var(--ink)' : 'var(--ink-2)', fontWeight: isUnread ? 500 : 400, lineHeight: 1.45 }}>
+            {n.message}
+          </p>
+        );
+
+        if (showResponseButtons) {
+          return (
+            <div key={n.id} className="flex gap-0"
+              style={{ borderBottom: '1px solid var(--rule-2)', background: 'var(--paper-2)' }}>
+              <span style={{ width: 3, flexShrink: 0, background: accent, alignSelf: 'stretch' }} />
+              <div className="flex-1 min-w-0 px-4 py-3">
+                {header}
+                <button onClick={() => onNotifClick(n)} className="w-full text-left">
+                  {messageEl}
+                </button>
+
+                {errors[n.id] && (
+                  <p style={{ fontSize: 11, color: 'var(--danger)', marginTop: 6 }}>{errors[n.id]}</p>
+                )}
+
+                {delayedId === n.id ? (
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    <input
+                      autoFocus
+                      style={{ fontSize: 12, border: '1px solid var(--rule)', padding: '4px 8px', fontFamily: 'inherit', width: '100%', outline: 'none', borderRadius: 2 }}
+                      placeholder="What's causing the delay? (optional)"
+                      value={delayReason}
+                      onChange={e => setDelayReason(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); submitResponse(n, 'delayed', delayReason); }
+                        if (e.key === 'Escape') { setDelayedId(null); setDelayReason(''); }
+                      }}
+                    />
+                    <div className="flex items-baseline gap-3">
+                      <button className="btn-primary" disabled={isBusy}
+                        onClick={() => submitResponse(n, 'delayed', delayReason)}>
+                        {isBusy ? 'Sending…' : 'Send →'}
+                      </button>
+                      <button className="btn-ghost"
+                        onClick={() => { setDelayedId(null); setDelayReason(''); }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {(['on_track', 'delayed', 'finished', 'cancelled'] as const).map(s => {
+                      const labels: Record<string, string> = {
+                        on_track: 'On Track', delayed: 'Delayed…', finished: 'Finished', cancelled: 'Cancelled',
+                      };
+                      return (
+                        <button key={s} disabled={isBusy}
+                          style={{
+                            fontSize: 11, fontWeight: 500, color: UPDATE_STATUS_COLORS[s],
+                            border: `1px solid ${UPDATE_STATUS_COLORS[s]}`, padding: '2px 9px',
+                            fontFamily: 'inherit', opacity: isBusy ? 0.5 : 1,
+                          }}
+                          onClick={() => {
+                            if (s === 'delayed') { setDelayedId(n.id); return; }
+                            submitResponse(n, s);
+                          }}>
+                          {isBusy ? '…' : labels[s]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <button key={n.id} onClick={() => onNotifClick(n)} className="w-full text-left flex gap-0"
+            style={{ borderBottom: '1px solid var(--rule-2)', background: isUnread ? 'var(--paper-2)' : 'transparent' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
+            onMouseLeave={e => (e.currentTarget.style.background = isUnread ? 'var(--paper-2)' : 'transparent')}>
+            <span style={{ width: 3, flexShrink: 0, background: isUnread ? accent : 'transparent', alignSelf: 'stretch' }} />
+            <div className="flex-1 min-w-0 px-4 py-3">
+              {header}
+              {messageEl}
+            </div>
+          </button>
+        );
+      })}
+    </>
+  );
+}
 
 export default function NotificationPanel({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
@@ -70,6 +234,26 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     }
     if (n.type === 'mention' && n.reference_type === 'channel' && n.reference_id) {
       navigate(`/channel/${n.reference_id}`);
+    }
+    if (n.type === 'task_update_request' && n.reference_id) {
+      try {
+        const { data } = await client.get<{ board_id: string; task_key: string | null }>(
+          `/api/task-updates/notification/${n.reference_id}`
+        );
+        if (data.task_key) {
+          navigate(`/board/${data.board_id}?taskKey=${data.task_key}`);
+        } else {
+          navigate(`/board/${data.board_id}?updates=1`);
+        }
+      } catch {}
+    }
+    if (n.type === 'task_update_response' && n.reference_id) {
+      try {
+        const { data } = await client.get<{ board_id: string }>(
+          `/api/task-updates/notification/${n.reference_id}`
+        );
+        navigate(`/board/${data.board_id}?updates=1`);
+      } catch {}
     }
   }
 
@@ -135,58 +319,11 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
             <p style={{ fontSize: 13, color: 'var(--faint)', fontStyle: 'italic' }}>All caught up</p>
           </div>
         ) : (
-          sorted.map(n => {
-            const accent = TYPE_ACCENT[n.type] ?? 'transparent';
-            const label  = TYPE_LABEL[n.type];
-            const labelColor = TYPE_LABEL_COLOR[n.type] ?? 'var(--faint)';
-            const isUnread = !n.is_read;
-
-            return (
-              <button
-                key={n.id}
-                onClick={() => handleNotifClick(n)}
-                className="w-full text-left flex gap-0"
-                style={{
-                  borderBottom: '1px solid var(--rule-2)',
-                  background: isUnread ? 'var(--paper-2)' : 'transparent',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
-                onMouseLeave={e => (e.currentTarget.style.background = isUnread ? 'var(--paper-2)' : 'transparent')}
-              >
-                {/* Priority accent bar */}
-                <span style={{ width: 3, flexShrink: 0, background: isUnread ? accent : 'transparent', alignSelf: 'stretch' }} />
-
-                <div className="flex-1 min-w-0 px-4 py-3">
-                  {/* Type label + timestamp */}
-                  <div className="flex items-baseline justify-between gap-2 mb-1">
-                    {label && (
-                      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
-                        {label}
-                      </span>
-                    )}
-                    {n.type === 'mention' && n.priority && MENTION_PRIORITY_COLORS[n.priority] && (
-                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: MENTION_PRIORITY_COLORS[n.priority] }}>
-                        {n.priority}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 11, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', marginLeft: 'auto', flexShrink: 0 }}>
-                      {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
-                    </span>
-                  </div>
-
-                  {/* Message */}
-                  <p style={{
-                    fontSize: 13,
-                    color: isUnread ? 'var(--ink)' : 'var(--ink-2)',
-                    fontWeight: isUnread ? 500 : 400,
-                    lineHeight: 1.45,
-                  }}>
-                    {n.message}
-                  </p>
-                </div>
-              </button>
-            );
-          })
+          <NotificationList
+            notifications={sorted}
+            onNotifClick={handleNotifClick}
+            markRead={markRead}
+          />
         )}
       </div>
     </div>

@@ -1,17 +1,38 @@
 import { create } from 'zustand';
+import type { Message, PipelineDeal } from '../types';
+
+export type SidebarView =
+  | { type: 'notifications' }
+  | { type: 'board-updates'; boardId: string; canRequest: boolean }
+  | { type: 'thread'; message: Message; channelId?: string; dmThreadId?: string }
+  | { type: 'tasks' }
+  | { type: 'pipeline' }
+  | null;
 
 interface UIState {
+  activeSidebar: SidebarView;
+  openSidebar: (view: SidebarView) => void;
+  closeSidebar: () => void;
+
+  // Pipeline mock state (owned here so PipelinePanel can live in RightSidebarPanel)
+  pipelineDeals: PipelineDeal[];
+  setPipelineDeals: (deals: PipelineDeal[]) => void;
+  addPipelineDeal: (deal: PipelineDeal) => void;
+
+  // Global ShareModal trigger
+  shareMessage: Message | null;
+  openShareModal: (msg: Message) => void;
+  closeShareModal: () => void;
+
   showCreateBoard: boolean;
   showInvite: boolean;
   channelUnread: Record<string, number>;
   dmUnread: Record<string, number>;
   threadUnread: Record<string, number>;
-  activeThreadId: string | null;
   openCreateBoard: () => void;
   closeCreateBoard: () => void;
   openInvite: () => void;
   closeInvite: () => void;
-  setActiveThreadId: (id: string | null) => void;
   incrementChannelUnread: (id: string) => void;
   incrementDmUnread: (id: string) => void;
   incrementThreadUnread: (id: string) => void;
@@ -21,17 +42,27 @@ interface UIState {
 }
 
 const useUIStore = create<UIState>((set) => ({
+  activeSidebar: null,
+  openSidebar: (view) => set({ activeSidebar: view }),
+  closeSidebar: () => set({ activeSidebar: null }),
+
+  pipelineDeals: [],
+  setPipelineDeals: (deals) => set({ pipelineDeals: deals }),
+  addPipelineDeal: (deal) => set((s) => ({ pipelineDeals: [deal, ...s.pipelineDeals] })),
+
+  shareMessage: null,
+  openShareModal: (msg) => set({ shareMessage: msg }),
+  closeShareModal: () => set({ shareMessage: null }),
+
   showCreateBoard: false,
   showInvite: false,
   channelUnread: {},
   dmUnread: {},
   threadUnread: {},
-  activeThreadId: null,
   openCreateBoard: () => set({ showCreateBoard: true }),
   closeCreateBoard: () => set({ showCreateBoard: false }),
   openInvite: () => set({ showInvite: true }),
   closeInvite: () => set({ showInvite: false }),
-  setActiveThreadId: (id) => set({ activeThreadId: id }),
   incrementChannelUnread: (id) =>
     set((s) => ({ channelUnread: { ...s.channelUnread, [id]: (s.channelUnread[id] || 0) + 1 } })),
   incrementDmUnread: (id) =>

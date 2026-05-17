@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run } from '../db';
 import { enrichMessages } from '../lib/messageEnrich';
-import { authMiddleware } from '../middleware/auth';
 import { requireDmParticipant } from '../middleware/workspace';
 
 const router = express.Router();
@@ -13,7 +12,7 @@ export const setIo = (socketIo: Server) => { io = socketIo; };
 
 // ── DM Threads ────────────────────────────────────────────────────────────────
 
-router.get('/threads/:workspaceId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/threads/:workspaceId', async (req: Request, res: Response) => {
   const threads = await all(
     `SELECT dt.id, dt.workspace_id, dt.created_at FROM dm_threads dt
      JOIN dm_participants dp ON dt.id = dp.thread_id
@@ -36,7 +35,7 @@ router.get('/threads/:workspaceId', authMiddleware, async (req: Request, res: Re
   res.json(enriched);
 });
 
-router.post('/threads', authMiddleware, async (req: Request, res: Response) => {
+router.post('/threads', async (req: Request, res: Response) => {
   try {
     const { other_user_id } = req.body;
     const workspace_id = req.workspaceId!;
@@ -84,7 +83,7 @@ router.post('/threads', authMiddleware, async (req: Request, res: Response) => {
 
 // ── DM Messages ───────────────────────────────────────────────────────────────
 
-router.get('/:threadId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
+router.get('/:threadId', requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   const messages = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
@@ -98,7 +97,7 @@ router.get('/:threadId', authMiddleware, requireDmParticipant('threadId'), async
   res.json(await enrichMessages(messages));
 });
 
-router.post('/:threadId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
+router.post('/:threadId', requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   try {
     const { content, linked_task_id, parent_message_id, importance } = req.body;
     if (!content) return res.status(400).json({ error: 'content required' });
@@ -173,7 +172,7 @@ router.post('/:threadId', authMiddleware, requireDmParticipant('threadId'), asyn
 
 // ── DM Thread replies ─────────────────────────────────────────────────────────
 
-router.get('/:threadId/thread/:messageId', authMiddleware, requireDmParticipant('threadId'), async (req: Request, res: Response) => {
+router.get('/:threadId/thread/:messageId', requireDmParticipant('threadId'), async (req: Request, res: Response) => {
   const depth1 = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,

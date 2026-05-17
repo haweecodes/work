@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run, returning } from '../db';
-import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 let io: Server | undefined;
@@ -27,7 +26,7 @@ async function sendAssignmentNotification(
   // System messages to DMs / channels removed — notification-only approach
 }
 
-router.post('/', authMiddleware, async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const { board_id, column_id, title, description, priority, due_date, assignee_ids, linked_message_id, parent_task_id } = req.body;
     if (!board_id || !column_id || !title) {
@@ -85,7 +84,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/detail/:id', authMiddleware, async (req: Request, res: Response) => {
+router.get('/detail/:id', async (req: Request, res: Response) => {
   const task = await get<{ id: string; board_id: string; task_key: string; title: string }>(
     'SELECT t.id, t.board_id, t.task_key, t.title FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
     [req.params.id, req.workspaceId]
@@ -94,18 +93,36 @@ router.get('/detail/:id', authMiddleware, async (req: Request, res: Response) =>
   res.json(task);
 });
 
-router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/:id', async (req: Request, res: Response) => {
   try {
-    const { title, description, priority, due_date, assignee_ids, column_id, parent_task_id } = req.body;
+    const { title, description, priority, due_date, assignee_ids, column_id, board_id, parent_task_id } = req.body;
     const task = await get(
       'SELECT t.* FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
       [req.params.id, req.workspaceId]
     );
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
+    // If moving to a different board, verify it belongs to the same workspace and
+    // that the target column belongs to the target board.
+    const resolvedBoardId = board_id && board_id !== task.board_id ? board_id : task.board_id;
+    if (board_id && board_id !== task.board_id) {
+      // Subtasks cannot change boards independently — they follow their parent
+      if (task.parent_task_id) {
+        return res.status(400).json({ error: 'Subtasks cannot be moved to a different board than their parent task' });
+      }
+      const newBoard = await get('SELECT 1 FROM boards WHERE id = ? AND workspace_id = ?', [board_id, req.workspaceId]);
+      if (!newBoard) return res.status(400).json({ error: 'Target board not found in this workspace' });
+      if (!column_id) {
+        return res.status(400).json({ error: 'A column in the target board must be selected when moving between boards' });
+      }
+      const colInBoard = await get('SELECT 1 FROM columns WHERE id = ? AND board_id = ?', [column_id, board_id]);
+      if (!colInBoard) return res.status(400).json({ error: 'Column does not belong to the target board' });
+    }
+
+    const resolvedColumnId = column_id ?? task.column_id;
     let newPosition = task.position;
-    if (column_id && column_id !== task.column_id) {
-      const existing = await all('SELECT id FROM tasks WHERE column_id = ?', [column_id]);
+    if (resolvedColumnId !== task.column_id || resolvedBoardId !== task.board_id) {
+      const existing = await all('SELECT id FROM tasks WHERE column_id = ?', [resolvedColumnId]);
       newPosition = existing.length;
     }
 
@@ -116,9 +133,26 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       : task.parent_task_id;
 
     await run(
-      'UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, column_id = ?, parent_task_id = ?, position = ? WHERE id = ?',
-      [title ?? task.title, description ?? task.description, priority ?? task.priority, resolvedDueDate, column_id ?? task.column_id, resolvedParentId, newPosition, req.params.id]
+      'UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, column_id = ?, board_id = ?, parent_task_id = ?, position = ? WHERE id = ?',
+      [title ?? task.title, description ?? task.description, priority ?? task.priority, resolvedDueDate, resolvedColumnId, resolvedBoardId, resolvedParentId, newPosition, req.params.id]
     );
+
+    // When moving to a different board, migrate all direct subtasks to the same board + column
+    if (board_id && board_id !== task.board_id) {
+      const subtasks = await all<{ id: string }>('SELECT id FROM tasks WHERE parent_task_id = ?', [req.params.id]);
+      for (const subtask of subtasks) {
+        await run('UPDATE tasks SET board_id = ?, column_id = ? WHERE id = ?',
+          [resolvedBoardId, resolvedColumnId, subtask.id]);
+        if (io) {
+          io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: subtask.id });
+          const movedSubtask = await get(
+            'SELECT t.*, c.title as column_title FROM tasks t LEFT JOIN columns c ON t.column_id = c.id WHERE t.id = ?',
+            [subtask.id]
+          );
+          io.to(`board:${resolvedBoardId}`).emit('task_updated', { type: 'created', task: movedSubtask });
+        }
+      }
+    }
 
     if (assignee_ids && Array.isArray(assignee_ids)) {
       const ids = assignee_ids as string[];
@@ -154,14 +188,20 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       [req.params.id]
     );
     const result = { ...updated, assignees };
-    if (io) io.to(`board:${updated.board_id}`).emit('task_updated', { type: 'updated', task: result });
+    if (io) {
+      // If the task moved to a different board, notify the old board to remove it
+      if (board_id && board_id !== task.board_id) {
+        io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: req.params.id });
+      }
+      io.to(`board:${updated.board_id}`).emit('task_updated', { type: 'updated', task: result });
+    }
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-router.patch('/:id/move', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/:id/move', async (req: Request, res: Response) => {
   try {
     const { column_id, position } = req.body;
     const task = await get(
@@ -184,7 +224,7 @@ router.patch('/:id/move', authMiddleware, async (req: Request, res: Response) =>
   }
 });
 
-router.get('/resolve/:taskKey', authMiddleware, async (req: Request, res: Response) => {
+router.get('/resolve/:taskKey', async (req: Request, res: Response) => {
   try {
     const taskKey = String(req.params.taskKey).toUpperCase();
     const task = await get(
@@ -200,7 +240,7 @@ router.get('/resolve/:taskKey', authMiddleware, async (req: Request, res: Respon
   }
 });
 
-router.get('/task/:id', authMiddleware, async (req: Request, res: Response) => {
+router.get('/task/:id', async (req: Request, res: Response) => {
   try {
     const task = await get(
       `SELECT t.*, c.title as column_title,
@@ -225,7 +265,7 @@ router.get('/task/:id', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const task = await get(
       'SELECT t.* FROM tasks t JOIN boards b ON t.board_id = b.id WHERE t.id = ? AND b.workspace_id = ?',
@@ -244,7 +284,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:boardId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:boardId', async (req: Request, res: Response) => {
   const board = await get('SELECT 1 FROM boards WHERE id = ? AND workspace_id = ?', [req.params.boardId, req.workspaceId]);
   if (!board) return res.status(404).json({ error: 'Board not found' });
 

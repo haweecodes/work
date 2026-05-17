@@ -78,14 +78,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     // Increment unread counts for messages received outside the active view
     socket.on('new_message', (msg: Message) => {
       const activePath = window.location.pathname;
-      const { activeThreadId, incrementThreadUnread, incrementChannelUnread } = useUIStore.getState();
+      const { activeSidebar, incrementThreadUnread, incrementChannelUnread } = useUIStore.getState();
+      const activeThreadMsgId = activeSidebar?.type === 'thread' ? activeSidebar.message.id : null;
 
       // Guard: only count unread for channels that belong to the current workspace
       const { channels: currentChannels } = useWorkspaceStore.getState();
       if (msg.channel_id && !currentChannels.some(c => c.id === msg.channel_id)) return;
 
       if (msg.parent_message_id) {
-        if (activeThreadId !== msg.parent_message_id) incrementThreadUnread(msg.parent_message_id);
+        if (activeThreadMsgId !== msg.parent_message_id) incrementThreadUnread(msg.parent_message_id);
       } else if (msg.channel_id && !activePath.includes(`/channel/${msg.channel_id}`)) {
         incrementChannelUnread(msg.channel_id);
       }

@@ -1,5 +1,14 @@
 // Shared domain types used across frontend stores and components
 
+export interface PipelineDeal {
+  id: string;
+  company: string;
+  detail: string;
+  value: string;
+  prob: string;
+  stage: 'lead' | 'qualified' | 'proposal' | 'closing';
+}
+
 export interface User {
   id: string;
   name: string;
@@ -41,6 +50,33 @@ export interface Board {
   name: string;
   project_key?: string;
   task_sequence?: number;
+  created_by?: string;
+}
+
+export interface TaskUpdateResponse {
+  id: string;
+  request_id: string;
+  task_id: string;
+  task_key?: string;
+  task_title?: string;
+  user_id: string;
+  user_name?: string;
+  status: 'on_track' | 'delayed' | 'finished' | 'cancelled' | 'pending';
+  reason?: string;
+  created_at: string;
+}
+
+export interface TaskUpdateRequest {
+  id: string;
+  board_id: string;
+  scope: 'task' | 'column' | 'board';
+  task_id?: string;
+  column_id?: string;
+  requested_by: string;
+  requester_name: string;
+  workspace_id: string;
+  created_at: string;
+  responses: TaskUpdateResponse[];
 }
 
 export interface TaskAssignee {
@@ -144,5 +180,6 @@ export interface Notification {
   sender_avatar?: string;
   workspace_id?: string;
   priority?: string;
+  extra_id?: string;
   created_at: string;
 }

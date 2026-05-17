@@ -7,9 +7,8 @@ import useBoardStore from '../store/boardStore';
 import useUIStore from '../store/uiStore';
 import Sidebar from '../components/Sidebar/Sidebar';
 import PriorityAlertBanner from '../components/PriorityAlertBanner';
+import RightSidebarPanel from '../components/RightSidebarPanel';
 
-// Only loaded when user opens a task — keeps initial bundle smaller
-const TaskDetailPanel  = lazy(() => import('../components/TaskDetailPanel'));
 const InviteModal      = lazy(() => import('../components/InviteModal'));
 const CreateBoardModal = lazy(() => import('../components/CreateBoardModal'));
 const SearchModal      = lazy(() => import('../components/SearchModal'));
@@ -21,7 +20,14 @@ export default function AppLayout() {
   const { fetchNotifications } = useNotificationStore();
   const { fetchBoards } = useBoardStore();
   const selectedTask = useBoardStore(s => s.selectedTask);
-  const { showInvite, closeInvite, showCreateBoard, closeCreateBoard } = useUIStore();
+  const { showInvite, closeInvite, showCreateBoard, closeCreateBoard, closeSidebar } = useUIStore();
+
+  // When a task is selected, close any other open sidebar
+  useEffect(() => {
+    if (selectedTask) closeSidebar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTask?.id]);
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const location = useLocation();
@@ -37,12 +43,16 @@ export default function AppLayout() {
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
-  // Clear the task detail drawer whenever the user navigates to a different route.
-  // Without this, selectedTask persists in the global store and the drawer lingers
-  // (and flickers) across channel/DM/board page transitions.
+  // Clear the task detail drawer and context-specific panels whenever the user
+  // navigates to a different route (thread/tasks/pipeline are view-local context).
   useEffect(() => {
     const { setSelectedTask } = useBoardStore.getState();
     setSelectedTask(null);
+    const { activeSidebar, closeSidebar } = useUIStore.getState();
+    const type = activeSidebar?.type;
+    if (type === 'thread' || type === 'tasks' || type === 'pipeline') {
+      closeSidebar();
+    }
   }, [location.pathname]);
 
   useEffect(() => {
@@ -115,40 +125,7 @@ export default function AppLayout() {
       {/* Task detail panel — sidebar on desktop, full-screen overlay on mobile
           On channel routes ChannelView owns the right-panel slot and renders
           TaskDetailPanel itself, so we only mount the desktop sidebar elsewhere. */}
-      {selectedTask && (
-        <>
-          {/* Desktop: sidebar panel — suppressed on /channel/* and /dm/* (those views handle their own panel) */}
-          <div className={`w-96 flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto animate-slide-in ${location.pathname.startsWith('/channel/') || location.pathname.startsWith('/dm/') ? 'hidden' : 'hidden lg:block'}`}>
-            <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
-              <TaskDetailPanel />
-            </Suspense>
-          </div>
-
-          {/* Mobile: full-screen overlay (z-40 sits above thread panel z-10) */}
-          <div className="lg:hidden fixed inset-0 z-40 bg-white flex flex-col animate-slide-in">
-            {/* Mobile close bar */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 flex-shrink-0">
-              <button
-                onClick={() => useBoardStore.getState().setSelectedTask(null)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-              <span className="font-semibold text-sm text-gray-900 truncate">
-                {selectedTask.task_key ? `${selectedTask.task_key} ` : ''}
-                {selectedTask.title}
-              </span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <Suspense fallback={<div className="animate-pulse p-6 space-y-3"><div className="h-4 bg-gray-200 rounded w-3/4" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>}>
-                <TaskDetailPanel />
-              </Suspense>
-            </div>
-          </div>
-        </>
-      )}
+      <RightSidebarPanel />
 
       {/* Global modals */}
       {showInvite && (

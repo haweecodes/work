@@ -21,6 +21,27 @@ export async function initDb(): Promise<void> {
     await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS priority TEXT`;
     await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS importance TEXT DEFAULT 'normal'`;
     await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS mention_priorities TEXT`;
+    await sql`ALTER TABLE boards ADD COLUMN IF NOT EXISTS created_by TEXT`;
+    await sql`CREATE TABLE IF NOT EXISTS task_update_requests (
+      id           TEXT PRIMARY KEY,
+      board_id     TEXT NOT NULL,
+      scope        TEXT NOT NULL,
+      task_id      TEXT,
+      column_id    TEXT,
+      requested_by TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS extra_id TEXT`;
+    await sql`CREATE TABLE IF NOT EXISTS task_update_responses (
+      id         TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL,
+      task_id    TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      status     TEXT NOT NULL,
+      reason     TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {
     console.error('❌ Database connection failed:', err);

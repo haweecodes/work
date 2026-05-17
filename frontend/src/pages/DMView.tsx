@@ -1,4 +1,4 @@
-import { useState, useRef, lazy, Suspense } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -7,33 +7,25 @@ import useBoardStore from '../store/boardStore';
 import { useChatMessages } from '../hooks/useChatMessages';
 import MessageList from '../components/MessageList';
 import MessageComposer from '../components/MessageComposer';
-import PanelOverlay from '../components/PanelOverlay';
-import TaskTray from '../components/TaskTray';
 import { MessageListSkeleton } from '../components/Skeleton';
-import type { Message, Task } from '../types';
+import type { Message } from '../types';
 
-const ThreadPanel     = lazy(() => import('../components/ThreadPanel'));
-const TaskDetailPanel = lazy(() => import('../components/TaskDetailPanel'));
-const ShareModal      = lazy(() => import('../components/ShareModal'));
-const CreateTaskModal = lazy(() => import('../components/CreateTaskModal'));
 
 export default function DMView() {
   const { threadId } = useParams<{ threadId: string }>();
   const user = useAuthStore(s => s.user);
   const { dmThreads, members } = useWorkspaceStore();
-  const { activeThreadId, setActiveThreadId, clearThreadUnread, clearDmUnread } = useUIStore();
-  const { boards, columns, fetchColumns, selectedTask, setSelectedTask } = useBoardStore();
+  const { clearThreadUnread, clearDmUnread, activeSidebar, openSidebar, closeSidebar, openShareModal } = useUIStore();
+  const { columns } = useBoardStore();
 
   const endRef = useRef<HTMLDivElement>(null);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const thread = dmThreads.find(t => t.id === threadId);
   const otherParticipants = thread?.participants?.filter(p => p.id !== user?.id) || [];
   const title = otherParticipants.map(p => p.name).join(', ') || 'Direct Message';
-  const activeBoard = boards[0];
-
   const {
-    messages, loading, content, typingUsers, setMessages,
+    messages, loading, content, typingUsers,
     handleContentChange, handleSend,
     handleMsgUpdated, handleMsgDeleted, handleReactionToggle, handleTaskLinked,
   } = useChatMessages({
@@ -41,7 +33,7 @@ export default function DMView() {
     id: threadId,
     user,
     endRef,
-    onClearUnread: () => { threadId && clearDmUnread(threadId); setActiveThreadId(null); },
+    onClearUnread: () => { threadId && clearDmUnread(threadId); closeSidebar(); },
     highlightId: searchParams.get('highlight'),
   });
 
@@ -53,37 +45,24 @@ export default function DMView() {
     setImportance('normal');
   };
 
-  // ── DM-specific state ─────────────────────────────────────────────────────
-  const [shareMsg, setShareMsg]           = useState<Message | null>(null);
-  const [createTaskMsg, setCreateTaskMsg] = useState<Message | null>(null);
-  const [createTaskPrefill, setCreateTaskPrefill] = useState<{ title?: string; priority?: string; due_date?: string } | undefined>(undefined);
-  const [showCreateTask, setShowCreateTask] = useState(false);
-  const [showTaskPanel, setShowTaskPanel] = useState(false);
-
   const myTaskCount = columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0);
 
-  const handleReply = (msg: Message) => { setActiveThreadId(msg.id); clearThreadUnread(msg.id); };
-  const handleShare = (msg: Message) => setShareMsg(msg);
-
-  const handleOpenCreateTask = async (msg: Message | null, prefill?: { title: string; priority: string; dueDate: string }) => {
-    setCreateTaskMsg(msg);
-    setCreateTaskPrefill(prefill ? { title: prefill.title, priority: prefill.priority, due_date: prefill.dueDate } : undefined);
-    if (activeBoard && columns.length === 0) await fetchColumns(activeBoard.id);
-    setShowCreateTask(true);
+  const handleReply = (msg: Message) => {
+    openSidebar({ type: 'thread', message: msg, dmThreadId: threadId! });
+    clearThreadUnread(msg.id);
   };
 
-  const handleCreateTask = (task: Task | null) => {
-    if (task && createTaskMsg) {
-      setMessages(prev => prev.map(m =>
-        m.id === createTaskMsg.id ? { ...m, linked_task_id: task.id, linked_task: task } : m
-      ));
+  // ── Open thread from URL param (e.g. navigate from linked message) ────────
+  const threadIdParam = searchParams.get('threadId');
+  useEffect(() => {
+    if (!threadIdParam || messages.length === 0) return;
+    const msg = messages.find(m => m.id === threadIdParam);
+    if (msg) {
+      openSidebar({ type: 'thread', message: msg, dmThreadId: threadId! });
+      setSearchParams(p => { p.delete('threadId'); return p; }, { replace: true });
     }
-    setShowCreateTask(false);
-    setCreateTaskMsg(null);
-    setCreateTaskPrefill(undefined);
-  };
-
-  const threadMsg = activeThreadId ? messages.find(m => m.id === activeThreadId) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadIdParam, messages.length]);
 
   return (
     <div className="flex h-full relative">
@@ -104,15 +83,15 @@ export default function DMView() {
           </div>
           <div className="flex items-baseline gap-6">
             <button
-              onClick={() => { setShowTaskPanel(v => !v); }}
+              onClick={() => activeSidebar?.type === 'tasks' ? closeSidebar() : openSidebar({ type: 'tasks' })}
               style={{
                 fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
-                color: showTaskPanel && !threadMsg ? 'var(--ink)' : 'var(--muted)',
-                borderBottom: `1px solid ${showTaskPanel && !threadMsg ? 'var(--ink)' : 'transparent'}`,
+                color: activeSidebar?.type === 'tasks' ? 'var(--ink)' : 'var(--muted)',
+                borderBottom: `1px solid ${activeSidebar?.type === 'tasks' ? 'var(--ink)' : 'transparent'}`,
                 paddingBottom: 2, background: 'none',
               }}
-              onMouseEnter={e => { if (!(showTaskPanel && !threadMsg)) e.currentTarget.style.color = 'var(--ink)'; }}
-              onMouseLeave={e => { if (!(showTaskPanel && !threadMsg)) e.currentTarget.style.color = 'var(--muted)'; }}
+              onMouseEnter={e => { if (activeSidebar?.type !== 'tasks') e.currentTarget.style.color = 'var(--ink)'; }}
+              onMouseLeave={e => { if (activeSidebar?.type !== 'tasks') e.currentTarget.style.color = 'var(--muted)'; }}
             >
               Tasks{myTaskCount > 0 ? ` · ${myTaskCount}` : ''}
             </button>
@@ -136,13 +115,13 @@ export default function DMView() {
           <MessageList
             messages={messages}
             typingUsers={typingUsers}
-            onCreateTask={handleOpenCreateTask}
+            onCreateTask={() => {}}
             onTaskLinked={handleTaskLinked}
             onMessageUpdated={handleMsgUpdated}
             onMessageDeleted={handleMsgDeleted}
             onReply={handleReply}
             onReactionToggle={handleReactionToggle}
-            onShare={handleShare}
+            onShare={openShareModal}
           />
           <div ref={endRef} />
         </div>
@@ -154,39 +133,6 @@ export default function DMView() {
             importance={importance} onImportanceChange={setImportance} />
         </div>
       </div>
-
-      {/* Right panel — absolute overlay so messages never shift */}
-      {(threadMsg || selectedTask || showTaskPanel) && (
-        <PanelOverlay>
-          {threadMsg ? (
-            <Suspense fallback={<MessageListSkeleton count={4} />}>
-              <ThreadPanel parentMessage={threadMsg} onClose={() => setActiveThreadId(null)}
-                dmThreadId={threadId!} onCreateTask={handleOpenCreateTask} onShare={handleShare}
-                onMessageUpdated={handleMsgUpdated} onMessageDeleted={handleMsgDeleted} />
-            </Suspense>
-          ) : selectedTask ? (
-            <div className="flex flex-col h-full overflow-hidden">
-              <Suspense fallback={<div className="animate-pulse p-5 space-y-3"><div className="h-4 bg-gray-100 rounded w-3/4" /></div>}>
-                <TaskDetailPanel onBack={() => { setSelectedTask(null); setShowTaskPanel(true); }} />
-              </Suspense>
-            </div>
-          ) : (
-            <TaskTray columns={columns} userId={user?.id ?? ''} boardId={activeBoard?.id} onClose={() => setShowTaskPanel(false)} />
-          )}
-        </PanelOverlay>
-      )}
-
-      {shareMsg && (
-        <Suspense fallback={null}>
-          <ShareModal message={shareMsg} onClose={() => setShareMsg(null)} />
-        </Suspense>
-      )}
-      {showCreateTask && activeBoard && (
-        <Suspense fallback={null}>
-          <CreateTaskModal prefilledMessage={createTaskMsg} prefilledData={createTaskPrefill}
-            boardId={activeBoard.id} onClose={handleCreateTask} />
-        </Suspense>
-      )}
     </div>
   );
 }

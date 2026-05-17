@@ -3,12 +3,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { all, get, run, runTransaction } from '../db';
 
 const ph = (arr: any[]) => arr.map(() => '?').join(', ');
-import { authMiddleware } from '../middleware/auth';
 import { requireWorkspaceMember } from '../middleware/workspace';
 
 const router = express.Router();
 
-router.get('/:workspaceId', authMiddleware, requireWorkspaceMember('workspaceId'), async (req: Request, res: Response) => {
+router.get('/:workspaceId', requireWorkspaceMember('workspaceId'), async (req: Request, res: Response) => {
   const boards = await all(
     'SELECT * FROM boards WHERE workspace_id = ? ORDER BY created_at ASC',
     [req.params.workspaceId]
@@ -16,7 +15,7 @@ router.get('/:workspaceId', authMiddleware, requireWorkspaceMember('workspaceId'
   res.json(boards);
 });
 
-router.post('/', authMiddleware, async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const { name, columns } = req.body;
     const workspace_id = req.workspaceId!;
@@ -46,8 +45,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     const colParams = cols.flatMap((title, i) => [uuidv4(), id, title, i]);
 
     await runTransaction([
-      { query: 'INSERT INTO boards (id, workspace_id, name, project_key) VALUES (?, ?, ?, ?)',
-        params: [id, workspace_id, name, project_key] },
+      { query: 'INSERT INTO boards (id, workspace_id, name, project_key, created_by) VALUES (?, ?, ?, ?, ?)',
+        params: [id, workspace_id, name, project_key, req.user.id] },
       { query: `INSERT INTO columns (id, board_id, title, position) VALUES ${colVals}`,
         params: colParams },
     ]);
@@ -59,7 +58,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/:id', async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
@@ -72,7 +71,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:boardId/columns', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:boardId/columns', async (req: Request, res: Response) => {
   const board = await get('SELECT id FROM boards WHERE id = ? AND workspace_id = ?', [req.params.boardId, req.workspaceId]);
   if (!board) return res.status(404).json({ error: 'Board not found' });
 
@@ -103,7 +102,7 @@ router.get('/:boardId/columns', authMiddleware, async (req: Request, res: Respon
   res.json(columns.map((col: any) => ({ ...col, tasks: tasksByCol[col.id] ?? [] })));
 });
 
-router.post('/:boardId/columns', authMiddleware, async (req: Request, res: Response) => {
+router.post('/:boardId/columns', async (req: Request, res: Response) => {
   try {
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'title required' });

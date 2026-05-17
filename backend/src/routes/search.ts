@@ -1,21 +1,17 @@
 import express, { Request, Response } from 'express';
 import { all } from '../db';
-import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const q = String(req.query.q ?? '').trim();
-    const workspaceId = String(req.query.workspace_id ?? '').trim();
-
     if (!q || q.length < 2) return res.json({ messages: [], tasks: [] });
-    if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
     const pattern = `%${q}%`;
     const userId = req.user.id;
+    const workspaceId = req.workspaceId!;
 
-    // Messages in channels the user is a member of
     const messages = await all(
       `SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id,
               u.name as sender_name, u.avatar_url as sender_avatar,
@@ -37,7 +33,6 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       [userId, userId, pattern, workspaceId]
     );
 
-    // Tasks in boards in the workspace
     const tasks = await all(
       `SELECT t.id, t.title, t.priority, t.task_key, t.due_date, t.column_id,
               b.name as board_name, b.id as board_id,
@@ -53,7 +48,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     );
 
     res.json({ messages, tasks });
-  } catch (err: any) {
+  } catch {
     res.status(500).json({ error: 'Server error' });
   }
 });

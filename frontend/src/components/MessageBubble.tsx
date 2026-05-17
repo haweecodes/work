@@ -341,7 +341,7 @@ function MessageBubble({
   isGroupEnd = true,
 }: MessageBubbleProps) {
   const user = useAuthStore(s => s.user);
-  const { threadUnread, setActiveThreadId } = useUIStore();
+  const { threadUnread } = useUIStore();
   const navigate = useNavigate();
   const { boards, columns, fetchColumns, selectedTask, setSelectedTask, updateTaskInColumn } = useBoardStore();
   const { members } = useWorkspaceStore();
@@ -439,7 +439,8 @@ function MessageBubble({
       setQuickCreatedTask(data);
       setInlineCreated(true);
       onTaskLinked?.(msg.id, data);
-      updateTaskInColumn(data); // add to KanbanPanel without joining the board socket room
+      updateTaskInColumn(data);
+      setSelectedTask(data);
     } catch {
       setShowInlineForm(true); // fallback to form if API fails
     }
@@ -485,12 +486,11 @@ function MessageBubble({
   const handleGoToSource = () => {
     const sm = msg.shared_message;
     if (!sm) return;
+    const threadParam = sm.parent_message_id ? `?threadId=${sm.parent_message_id}` : '';
     if (sm.channel_id) {
-      navigate(`/channel/${sm.channel_id}`);
-      if (sm.parent_message_id) setTimeout(() => setActiveThreadId(sm.parent_message_id!), 300);
+      navigate(`/channel/${sm.channel_id}${threadParam}`);
     } else if (sm.dm_thread_id) {
-      navigate(`/dm/${sm.dm_thread_id}`);
-      if (sm.parent_message_id) setTimeout(() => setActiveThreadId(sm.parent_message_id!), 300);
+      navigate(`/dm/${sm.dm_thread_id}${threadParam}`);
     }
   };
 
@@ -733,7 +733,7 @@ function MessageBubble({
               <div
                 className="mt-2"
                 style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 10, cursor: linkedTask ? 'pointer' : 'default' }}
-                onClick={() => { if (!linkedTask) return; setSelectedTask(linkedTask); setActiveThreadId(null); }}
+                onClick={() => { if (!linkedTask) return; setSelectedTask(linkedTask); }}
                 onMouseEnter={e => { if (linkedTask) e.currentTarget.style.borderLeftColor = 'var(--ink)'; }}
                 onMouseLeave={e => (e.currentTarget.style.borderLeftColor = 'var(--rule)')}
               >

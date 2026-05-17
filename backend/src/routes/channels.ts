@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run, runTransaction } from '../db';
-import { authMiddleware } from '../middleware/auth';
 import { requireChannelMember } from '../middleware/workspace';
 import { getReactionsForMessage, getSharedMessagePreview, enrichMessages } from '../lib/messageEnrich';
 
@@ -14,7 +13,7 @@ export const setIo = (socketIo: Server) => { io = socketIo; };
 
 // ── Channels CRUD ─────────────────────────────────────────────────────────────
 
-router.get('/:workspaceId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/:workspaceId', async (req: Request, res: Response) => {
   const channels = await all(
     `SELECT c.* FROM channels c
      JOIN channel_members cm ON c.id = cm.channel_id
@@ -25,7 +24,7 @@ router.get('/:workspaceId', authMiddleware, async (req: Request, res: Response) 
   res.json(channels);
 });
 
-router.post('/', authMiddleware, async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const { name, is_private } = req.body;
     const workspace_id = req.workspaceId!;
@@ -75,7 +74,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/:channelId/archive', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/:channelId/archive', async (req: Request, res: Response) => {
   try {
     const channel = await get('SELECT * FROM channels WHERE id = ? AND workspace_id = ?', [req.params.channelId, req.workspaceId]) as any;
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
@@ -102,7 +101,7 @@ router.patch('/:channelId/archive', authMiddleware, async (req: Request, res: Re
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
-router.get('/messages/:channelId', authMiddleware, requireChannelMember('channelId'), async (req: Request, res: Response) => {
+router.get('/messages/:channelId', requireChannelMember('channelId'), async (req: Request, res: Response) => {
   const messages = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
@@ -119,7 +118,7 @@ router.get('/messages/:channelId', authMiddleware, requireChannelMember('channel
   res.json(await enrichMessages(messages));
 });
 
-router.post('/messages', authMiddleware, async (req: Request, res: Response) => {
+router.post('/messages', async (req: Request, res: Response) => {
   try {
     const { channel_id, content, linked_task_id, parent_message_id, importance, mention_priorities } = req.body;
     if (!channel_id || !content) {
@@ -224,7 +223,7 @@ router.post('/messages', authMiddleware, async (req: Request, res: Response) => 
 
 // ── Thread replies ────────────────────────────────────────────────────────────
 
-router.get('/messages/:channelId/thread/:messageId', authMiddleware, requireChannelMember('channelId'), async (req: Request, res: Response) => {
+router.get('/messages/:channelId/thread/:messageId', requireChannelMember('channelId'), async (req: Request, res: Response) => {
   const depth1 = await all(
     `SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
             t.id as task_id, t.title as task_title, t.priority as task_priority, t.column_id as task_column_id, t.task_key, t.task_number,
@@ -263,7 +262,7 @@ router.get('/messages/:channelId/thread/:messageId', authMiddleware, requireChan
 
 // ── Share a message ───────────────────────────────────────────────────────────
 
-router.post('/messages/:messageId/share', authMiddleware, async (req: Request, res: Response) => {
+router.post('/messages/:messageId/share', async (req: Request, res: Response) => {
   try {
     const { target_channel_id, target_dm_thread_id, comment } = req.body;
     if (!target_channel_id && !target_dm_thread_id) {
@@ -380,7 +379,7 @@ router.post('/messages/:messageId/share', authMiddleware, async (req: Request, r
 
 // ── Message edit / delete ────────────────────────────────────────────────────
 
-router.patch('/messages/:id', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/messages/:id', async (req: Request, res: Response) => {
   try {
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'content required' });
@@ -405,7 +404,7 @@ router.patch('/messages/:id', authMiddleware, async (req: Request, res: Response
   }
 });
 
-router.delete('/messages/:id', authMiddleware, async (req: Request, res: Response) => {
+router.delete('/messages/:id', async (req: Request, res: Response) => {
   try {
 
     const msg = await get<any>('SELECT * FROM messages WHERE id = ?', [req.params.id]);
@@ -429,11 +428,11 @@ router.delete('/messages/:id', authMiddleware, async (req: Request, res: Respons
 
 // ── Reactions ─────────────────────────────────────────────────────────────────
 
-router.get('/messages/:messageId/reactions', authMiddleware, async (req: Request, res: Response) => {
+router.get('/messages/:messageId/reactions', async (req: Request, res: Response) => {
   res.json(await getReactionsForMessage(String(req.params.messageId)));
 });
 
-router.post('/messages/:messageId/reactions', authMiddleware, async (req: Request, res: Response) => {
+router.post('/messages/:messageId/reactions', async (req: Request, res: Response) => {
   try {
     const messageId = String(req.params.messageId);
     const emoji = String(req.body.emoji ?? '');

@@ -265,8 +265,12 @@ notifications            id, user_id, type, reference_id, reference_type, messag
 - `notifications.type` — `'mention'`, `'task_assigned'`, `'task_unassigned'`, `'dm'`, `'priority_alert'`, `'system'`.
 - `notifications.is_resolved` — used exclusively by `priority_alert` rows; 0 = pending, 1 = acknowledged.
 - `notifications.workspace_id` — scopes priority alerts so dedup/cap logic is per-workspace.
-- `db.ts` exposes `run()`, `all<T>()`, `get<T>()` helpers that convert `?` placeholders to `$1, $2, …` for Postgres.
-- Schema migrations run on startup via `initDb()` in `db.ts` using `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (idempotent).
+- `notifications.extra_id` — used by `task_update_request` notifications to carry the `request_id` alongside the `reference_id` (task ID).
+- `boards.created_by` — set at creation time; used by `canRequestUpdates()` in `taskUpdates.ts` to allow the board creator (or workspace admins) to request status updates.
+- `task_update_requests` — one row per update request: `id, board_id, scope, task_id?, column_id?, requested_by, workspace_id`.
+- `task_update_responses` — one row per assignee response: `id, request_id, task_id, user_id, status, reason?`.
+- `db.ts` exposes `run()`, `all<T>()`, `get<T>()`, `returning<T>()`, `runTransaction()` helpers that convert `?` placeholders to `$1, $2, …` for Postgres.
+- Schema migrations run on startup via `initDb()` in `db.ts` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (idempotent).
 
 ---
 
@@ -322,6 +326,15 @@ All routes except `/api/auth/*` require a valid JWT and workspace membership (se
 | `DELETE /api/tasks/:id` | Delete task (clears assignees + message link) |
 | `GET /api/tasks/resolve/:taskKey` | Resolve task key → `{ task_id, board_id, workspace_id }` |
 
+**Task Update Requests** (all require workspace guard; board creator and workspace admins only for POST)
+| Method + Path | Description |
+|---|---|
+| `POST /api/task-updates/request` | Ask assignees for a status update — scope: `task` \| `column` \| `board` |
+| `POST /api/task-updates/:requestId/respond` | Assignee responds with `on_track` \| `delayed` \| `finished` \| `cancelled` |
+| `GET /api/task-updates/:boardId` | Full update request history for a board (with responses + pending) |
+| `GET /api/task-updates/pending/me` | Pending update requests directed at the current user |
+| `GET /api/task-updates/notification/:taskId` | Resolve task ID → `{ board_id, task_key }` for notification navigation |
+
 **DMs** (all require workspace guard; message routes also require DM participant guard)
 | Method + Path | Description |
 |---|---|
@@ -373,6 +386,8 @@ Server→client events:
 | `reaction_updated` | `channel:{id}` or `dm:{id}` | Reaction toggled (full reactions array) |
 | `new_dm` | `dm:{id}` or `user:{id}` (thread) | New DM message or DM thread reply |
 | `task_updated` | `board:{id}` | Task created / updated / moved / deleted (`type` field) |
+| `task_update_requested` | `board:{id}` | New update request sent to the board |
+| `task_update_responded` | `board:{id}` | Assignee responded to an update request (`request_id` + `response`) |
 | `channel_created` | `user:{id}` | Channel created (all workspace members for public; creator for private) |
 | `channel_archived` | `user:{id}` | Channel archived (all channel members) |
 | `notification` | `user:{id}` | Mention, assignment, DM, or system notification |
@@ -390,6 +405,8 @@ Server→client events:
 - **Thread nesting**: Max 2 levels deep enforced on both channel messages and DMs. A reply to a reply is allowed; a reply to a reply-of-a-reply is rejected (400).
 - **Message ownership**: Only the message sender can edit or delete their own messages. System messages (`is_system=1`) cannot be edited or deleted.
 - **Task keys**: Auto-incremented via `UPDATE boards SET task_sequence = task_sequence + 1` then formatted as `{project_key}-{n}`.
+- **Subtask completion**: "Done" is determined by the last column by position (`ORDER BY position DESC LIMIT 1`), not a hardcoded title. This is used in both `TaskCard` (board view) and `TaskDetailPanel` to compute `completedCount/totalCount`.
+- **Task update requests**: Board creator or workspace admins (`role='admin'`) can request status updates via `POST /api/task-updates/request`. Responses (`on_track | delayed | finished | cancelled`) are stored in `task_update_responses` and surfaced inline in `TaskDetailPanel` for assignees. `BoardUpdatesPanel` shows full history.
 - **Priority alerts**: One pending alert per sender-recipient pair per workspace. Recipients see a `PriorityAlertBanner` at the top of the app until they acknowledge. Resolving clears all pending alerts from that sender in one operation.
 - **Unread counts**: Managed entirely in `uiStore` on the frontend; incremented on incoming socket events, cleared on navigation.
 - **Lazy loading**: All pages and heavy modals (`TaskDetailPanel`, `InviteModal`, `CreateBoardModal`) are `React.lazy()` split.

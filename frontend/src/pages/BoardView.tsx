@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useContext, lazy, Suspense } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import useAuthStore from '../store/authStore';
+import useWorkspaceStore from '../store/workspaceStore';
+import useUIStore from '../store/uiStore';
 import {
   DndContext,
   closestCorners,
@@ -37,7 +40,7 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 // ── TaskCard ──────────────────────────────────────────────────────────────────
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({ task, onSelect }: { task: Task; onSelect?: () => void }) {
   const [_, setSearchParams] = useSearchParams();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSelfDragging } = useSortable({ id: task.id });
   const { setSelectedTask, columns } = useBoardStore();
@@ -45,7 +48,10 @@ function TaskCard({ task }: { task: Task }) {
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   const allTasks = columns.flatMap(c => c.tasks ?? []);
-  const subtasksCount = allTasks.filter(t => t.parent_task_id === task.id).length;
+  const subtasks = allTasks.filter(t => t.parent_task_id === task.id);
+  const subtasksCount = subtasks.length;
+  const doneColumnId = [...columns].sort((a, b) => (b.position ?? 0) - (a.position ?? 0))[0]?.id;
+  const completedSubtasksCount = subtasks.filter(t => t.column_id === doneColumnId).length;
   const parentTask = task.parent_task_id ? allTasks.find(t => t.id === task.parent_task_id) : null;
 
   const handleCopyKey = (e: React.MouseEvent) => {
@@ -61,23 +67,30 @@ function TaskCard({ task }: { task: Task }) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white rounded-xl border border-gray-100 shadow-card p-3.5 cursor-pointer
+      className={`relative bg-white rounded-xl border border-gray-100 shadow-card p-3.5 cursor-pointer
         hover:border-primary-200 hover:shadow-md transition-all duration-150 group flex flex-col gap-3
         ${isSelfDragging ? 'opacity-40' : ''}`}
       onClick={() => {
-         if (task.task_key) {
-           // We explicitly tell react-router to update the URL.
-           setSearchParams({ taskKey: task.task_key }, { replace: true });
-           
-           // Local override for snappy immediate UI response
-           setSelectedTask(task);
-         } else {
-           setSelectedTask(task);
-         }
+        onSelect?.();
+        if (task.task_key) {
+          setSearchParams({ taskKey: task.task_key }, { replace: true });
+          setSelectedTask(task);
+        } else {
+          setSelectedTask(task);
+        }
       }}
       {...attributes}
       {...listeners}
     >
+      {/* Drag handle — top right */}
+      <div className="absolute top-3 right-3 text-gray-300 cursor-grab active:cursor-grabbing select-none">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
+          <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
+          <circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/>
+          <circle cx="2" cy="14" r="1.5"/><circle cx="8" cy="14" r="1.5"/>
+        </svg>
+      </div>
+
       <div className="flex items-start gap-2">
         <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${PRIORITY_DOT[task.priority || 'medium'] || 'bg-gray-300'}`} />
         <div className="flex flex-col flex-1 min-w-0">
@@ -150,11 +163,11 @@ function TaskCard({ task }: { task: Task }) {
             </div>
           ) : <span />}
           {subtasksCount > 0 && (
-            <div className="flex items-center gap-1 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+            <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${completedSubtasksCount === subtasksCount ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-              {subtasksCount}
+              {completedSubtasksCount}/{subtasksCount}
             </div>
           )}
         </div>
@@ -193,12 +206,12 @@ function EmptyDropZone({ colId, onAddTask }: { colId: string; onAddTask: () => v
   );
 }
 
-function Column({ col, onAddTask }: { col: ColumnType; onAddTask: (colId: string) => void }) {
+function Column({ col, onAddTask, onTaskSelect }: { col: ColumnType; onAddTask: (colId: string) => void; onTaskSelect: () => void }) {
   const isEmpty = !col.tasks || col.tasks.length === 0;
   const sortableItems = isEmpty ? [] : col.tasks!.map(t => t.id);
 
   return (
-    <div className="flex-shrink-0 w-72 flex flex-col bg-gray-50/80 rounded-2xl p-3">
+    <div className="flex-shrink-0 w-72 flex flex-col bg-gray-50/80 rounded-2xl p-3 h-full">
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-sm text-gray-700">{col.title}</h3>
@@ -221,8 +234,8 @@ function Column({ col, onAddTask }: { col: ColumnType; onAddTask: (colId: string
         <EmptyDropZone colId={col.id} onAddTask={() => onAddTask(col.id)} />
       ) : (
         <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
-          <div className="flex-1 space-y-2 min-h-[60px]">
-            {col.tasks!.map(task => <TaskCard key={task.id} task={task} />)}
+          <div className="flex-1 overflow-y-auto space-y-2 min-h-[60px]" style={{ scrollbarWidth: 'thin' }}>
+            {col.tasks!.map(task => <TaskCard key={task.id} task={task} onSelect={onTaskSelect} />)}
           </div>
         </SortableContext>
       )}
@@ -237,6 +250,10 @@ export default function BoardView() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn, selectedTask, setSelectedTask, updateBoardName } = useBoardStore();
   const socketRef = useContext(SocketContext);
+  const user = useAuthStore(s => s.user);
+  const { role } = useWorkspaceStore();
+  const { activeSidebar, openSidebar, closeSidebar } = useUIStore();
+  const showUpdatesPanel = activeSidebar?.type === 'board-updates' && activeSidebar.boardId === boardId;
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [createInColumn, setCreateInColumn] = useState<string | null>(null);
@@ -256,7 +273,17 @@ export default function BoardView() {
   const overColumnIdRef = useRef<string | null>(null);
 
   const board = boards.find(b => b.id === boardId);
+  const canRequest = !!user && (role === 'admin' || board?.created_by === user.id);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Open updates panel when navigated from a task_update_response notification
+  useEffect(() => {
+    if (searchParams.get('updates') === '1') {
+      if (boardId) openSidebar({ type: 'board-updates', boardId, canRequest });
+      setSearchParams({}, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     console.log('[BoardView] Mount/Update useEffect triggered with boardId:', boardId);
@@ -301,6 +328,7 @@ export default function BoardView() {
       if (target) {
         if (target.id !== selectedTask?.id) {
           setSelectedTask(target);
+          closeSidebar();   // task open → close notifications / updates
         }
       } else {
         // The URL specifies a taskKey but it's not found on this board.
@@ -451,11 +479,18 @@ export default function BoardView() {
               }}
             />
           ) : (
-            <button onClick={handleNameEdit} title="Click to rename"
+            <button onClick={handleNameEdit}
+              className="group flex items-center gap-2"
               style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink-2)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink)')}>
               {board?.name || 'Board'}
+              <svg className="w-3.5 h-3.5 flex-shrink-0"
+                style={{ color: 'var(--faint)', marginBottom: 1 }}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
             </button>
           )}
           <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -477,6 +512,26 @@ export default function BoardView() {
               onBlur={e => (e.currentTarget.style.borderBottomColor = 'var(--rule)')}
             />
           </div>
+          <button
+            onClick={() => {
+              if (showUpdatesPanel) {
+                closeSidebar();
+              } else {
+                openSidebar({ type: 'board-updates', boardId: boardId!, canRequest });
+                setSelectedTask(null);
+                setSearchParams({}, { replace: true });
+              }
+            }}
+            style={{
+              fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: showUpdatesPanel ? 'var(--ink)' : 'var(--muted)',
+              textDecoration: showUpdatesPanel ? 'underline' : 'none',
+              textUnderlineOffset: 3,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+            onMouseLeave={e => { if (!showUpdatesPanel) e.currentTarget.style.color = 'var(--muted)'; }}>
+            Request Updates
+          </button>
           <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary">
             + New task
           </button>
@@ -502,7 +557,7 @@ export default function BoardView() {
                   return t.title.toLowerCase().includes(q) || t.task_key?.toLowerCase().includes(q);
                 })
               };
-              return <Column key={col.id} col={filteredCol} onAddTask={handleAddTask} />;
+              return <Column key={col.id} col={filteredCol} onAddTask={handleAddTask} onTaskSelect={closeSidebar} />;
             })}
 
             {/* Inline "Add column" card */}
@@ -574,6 +629,8 @@ export default function BoardView() {
           />
         </Suspense>
       )}
+
+      {/* Updates panel — fixed right overlay */}
     </div>
   );
 }

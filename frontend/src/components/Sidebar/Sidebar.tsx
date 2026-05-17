@@ -108,15 +108,14 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     setCurrentWorkspace, addChannel, fetchDmThreads,
   } = useWorkspaceStore();
   const { boards, fetchBoards } = useBoardStore();
-  const { openCreateBoard, openInvite, channelUnread, dmUnread } = useUIStore();
+  const { openCreateBoard, openInvite, channelUnread, dmUnread, activeSidebar, openSidebar, closeSidebar } = useUIStore();
   const notifUnread = useNotificationStore(s => s.unreadCount);
-
-  const [showNotif, setShowNotif] = useState(false);
+  const showNotif = activeSidebar?.type === 'notifications';
   const [showWorkspaces, setShowWorkspaces] = useState(false);
   const [addingChannel, setAddingChannel] = useState(false);
 
   const [newChannelName, setNewChannelName] = useState('');
-  const [isPrivate, setIsPrivate]         = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
 
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,7 +320,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         <section>
           <SectionLabel>Workspace</SectionLabel>
           <div className="space-y-0">
-            <NavItem to="/docs"     label="Docs" />
+            <NavItem to="/docs" label="Docs" />
             <NavItem to="/calendar" label="Calendar" />
           </div>
         </section>
@@ -353,7 +352,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         {/* Notifications */}
         <div className="relative">
           <button
-            onClick={() => setShowNotif(v => !v)}
+            onClick={() => showNotif ? closeSidebar() : openSidebar({ type: 'notifications' })}
             className="w-full flex items-center justify-between py-1"
             style={{ fontSize: 13, color: notifUnread > 0 ? 'var(--ink)' : 'var(--muted)' }}
             onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
@@ -372,24 +371,6 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
               </span>
             )}
           </button>
-          {showNotif && createPortal(
-            <>
-              <div
-                style={{ position: 'fixed', inset: 0, zIndex: 199 }}
-                onClick={() => setShowNotif(false)}
-              />
-              <div style={{
-                position: 'fixed', right: 0, top: 0, height: '100vh', width: 360, zIndex: 200,
-                background: '#FFFFFF', borderLeft: '1px solid #E5E3DD',
-                boxShadow: '-4px 0 24px rgba(23,23,27,0.10)',
-                display: 'flex', flexDirection: 'column',
-                animation: 'slideIn 0.18s ease-out forwards',
-              }}>
-                <NotificationPanel onClose={() => setShowNotif(false)} />
-              </div>
-            </>,
-            document.body
-          )}
         </div>
 
         {/* User row */}

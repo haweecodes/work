@@ -13,6 +13,7 @@ import taskRoutes, { setIo as setTaskIo } from './routes/tasks';
 import dmRoutes, { setIo as setDmIo } from './routes/dms';
 import notificationRoutes, { setIo as setNotifIo } from './routes/notifications';
 import searchRoutes from './routes/search';
+import taskUpdateRoutes, { setIo as setTaskUpdateIo } from './routes/taskUpdates';
 import { authMiddleware } from './middleware/auth';
 import { requireWorkspace } from './middleware/workspace';
 
@@ -46,6 +47,7 @@ setChannelIo(io);
 setTaskIo(io);
 setDmIo(io);
 setNotifIo(io);
+setTaskUpdateIo(io);
 
 // Routes
 // Auth and workspace management are unguarded — no workspace context needed
@@ -60,6 +62,7 @@ app.use('/api/tasks',         ...protect, taskRoutes);
 app.use('/api/dms',           ...protect, dmRoutes);
 app.use('/api/notifications', ...protect, notificationRoutes);
 app.use('/api/search',        ...protect, searchRoutes);
+app.use('/api/task-updates',  ...protect, taskUpdateRoutes);
 
 const PORT = process.env.PORT || 3001;
 

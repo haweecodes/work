@@ -2,14 +2,12 @@ import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from 'socket.io';
 import { all, get, run } from '../db';
-import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 let io: Server | undefined;
 export const setIo = (socketIo: Server) => { io = socketIo; };
 
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+router.get('/', async (req: Request, res: Response) => {
   const notifications = await all(
     "SELECT * FROM notifications WHERE user_id = ? AND workspace_id = ? AND type != 'dm' ORDER BY created_at DESC LIMIT 50",
     [req.user.id, req.workspaceId]
@@ -17,9 +15,8 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
   res.json(notifications);
 });
 
-router.patch('/read', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/read', async (req: Request, res: Response) => {
   const { ids } = req.body;
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   if (ids && Array.isArray(ids) && ids.length > 0) {
     for (const id of ids) {
       await run('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, req.user.id]);
@@ -31,11 +28,12 @@ router.patch('/read', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Send a priority alert to one or more recipients
-router.post('/priority', authMiddleware, async (req: Request, res: Response) => {
+router.post('/priority', async (req: Request, res: Response) => {
   try {
-    const { recipient_ids, message, workspace_id } = req.body;
-    if (!Array.isArray(recipient_ids) || recipient_ids.length === 0 || !message?.trim() || !workspace_id) {
-      return res.status(400).json({ error: 'recipient_ids, message, and workspace_id required' });
+    const { recipient_ids, message } = req.body;
+    const workspace_id = req.workspaceId!;
+    if (!Array.isArray(recipient_ids) || recipient_ids.length === 0 || !message?.trim()) {
+      return res.status(400).json({ error: 'recipient_ids and message required' });
     }
 
     const sender = await get<{ name: string; avatar_url: string }>(
@@ -43,7 +41,7 @@ router.post('/priority', authMiddleware, async (req: Request, res: Response) => 
     );
 
     const sendFeedback = async (feedbackMsg: string) => {
-      if (!io || !req.user) return;
+      if (!io) return;
       const fid = uuidv4();
       await run(
         `INSERT INTO notifications (id, user_id, type, message, is_read) VALUES (?, ?, 'system', ?, 0)`,
@@ -102,17 +100,14 @@ router.post('/priority', authMiddleware, async (req: Request, res: Response) => 
     }
 
     res.status(201).json({ sent: created.length, skipped });
-  } catch (err: any) {
+  } catch {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Resolve a priority alert (recipient acknowledges it)
-router.patch('/:id/resolve', authMiddleware, async (req: Request, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+router.patch('/:id/resolve', async (req: Request, res: Response) => {
   try {
-    // Look up the sender (reference_id) so we can clear ALL their pending alerts to this user.
-    // This handles orphaned is_resolved=0 rows that would otherwise permanently block new alerts.
     const notif = await get<{ reference_id: string; workspace_id: string }>(
       "SELECT reference_id, workspace_id FROM notifications WHERE id = ? AND user_id = ? AND type = 'priority_alert'",
       [req.params.id, req.user.id]

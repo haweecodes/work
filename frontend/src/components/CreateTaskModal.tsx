@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 import useBoardStore from '../store/boardStore';
-import type { Message, Task } from '../types';
+import type { Column, Message, Task } from '../types';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'critical'];
 
@@ -22,13 +22,18 @@ interface CreateTaskModalProps {
 
 export default function CreateTaskModal({ onClose, prefilledMessage, prefilledData, boardId, createInColumn }: CreateTaskModalProps) {
   const { members } = useWorkspaceStore();
-  const { columns } = useBoardStore();
-  const allColumns = columns;
+  const { boards, columns: storeColumns } = useBoardStore();
+
+  const [selectedBoardId, setSelectedBoardId] = useState(boardId);
+  const [boardColumns, setBoardColumns] = useState<Column[]>(
+    selectedBoardId === boardId ? storeColumns : []
+  );
+  const [loadingColumns, setLoadingColumns] = useState(false);
 
   const [form, setForm] = useState({
     title: prefilledData?.title ?? (prefilledMessage ? prefilledMessage.content.slice(0, 80) : ''),
     description: prefilledMessage ? prefilledMessage.content : '',
-    column_id: createInColumn || allColumns[0]?.id || '',
+    column_id: createInColumn || storeColumns[0]?.id || '',
     priority: prefilledData?.priority ?? 'medium',
     due_date: prefilledData?.due_date ?? '',
     assignee_ids: [] as string[],
@@ -36,6 +41,22 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Fetch columns whenever the selected board changes
+  useEffect(() => {
+    if (selectedBoardId === boardId) {
+      setBoardColumns(storeColumns);
+      setForm(f => ({ ...f, column_id: createInColumn || storeColumns[0]?.id || '' }));
+      return;
+    }
+    setLoadingColumns(true);
+    client.get<Column[]>(`/api/boards/${selectedBoardId}/columns`)
+      .then(({ data }) => {
+        setBoardColumns(data);
+        setForm(f => ({ ...f, column_id: data[0]?.id || '' }));
+      })
+      .finally(() => setLoadingColumns(false));
+  }, [selectedBoardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleAssignee = (id: string) => {
     setForm(f => ({
@@ -54,7 +75,7 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
     try {
       const { data } = await client.post<Task>('/api/tasks', {
         ...form,
-        board_id: boardId,
+        board_id: selectedBoardId,
         linked_message_id: prefilledMessage?.id || null,
       });
       onClose(data);
@@ -101,11 +122,24 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
               value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           </div>
 
+          <div>
+            <label className="label">Board</label>
+            <select className="input" value={selectedBoardId}
+              onChange={e => setSelectedBoardId(e.target.value)}>
+              {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Column</label>
-              <select className="input" value={form.column_id} onChange={e => setForm({ ...form, column_id: e.target.value })}>
-                {allColumns.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+              <select className="input" value={form.column_id}
+                onChange={e => setForm({ ...form, column_id: e.target.value })}
+                disabled={loadingColumns}>
+                {loadingColumns
+                  ? <option>Loading…</option>
+                  : boardColumns.map(c => <option key={c.id} value={c.id}>{c.title}</option>)
+                }
               </select>
             </div>
             <div>
@@ -126,7 +160,7 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
               <label className="label">Parent Task (optional)</label>
               <select className="input" value={form.parent_task_id} onChange={e => setForm({ ...form, parent_task_id: e.target.value })}>
                 <option value="">None</option>
-                {columns.flatMap(c => c.tasks).map(t => (
+                {boardColumns.flatMap(c => c.tasks ?? []).map(t => (
                   <option key={t.id} value={t.id}>{t.title}</option>
                 ))}
               </select>
@@ -151,7 +185,7 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn-ghost" onClick={() => onClose(null)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={loading}>
+            <button type="submit" className="btn-primary" disabled={loading || loadingColumns}>
               {loading ? 'Creating…' : 'Create task'}
             </button>
           </div>

@@ -24,7 +24,7 @@
   }
 
   body {
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-family: "Inter", system-ui, sans-serif;
     background: var(--paper);
     color: var(--ink);
     font-size: 14px;
