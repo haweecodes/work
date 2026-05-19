@@ -6,7 +6,7 @@ import { run, get } from '../db';
 import type { UserPayload } from '../types';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET!;
 
 router.post('/register', async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
@@ -35,8 +35,8 @@ router.post('/register', async (req: Request, res: Response) => {
       user: { id, name, email, avatar_url },
       token
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -60,8 +60,8 @@ router.post('/login', async (req: Request, res: Response) => {
       user: { id: user.id, name: user.name, email: user.email, avatar_url: user.avatar_url },
       token
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

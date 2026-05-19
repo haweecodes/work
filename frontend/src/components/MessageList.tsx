@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import MessageBubble, { type InlineTaskPrefill } from './MessageBubble';
 import type { Message, Reaction, Task } from '../types';
 
@@ -6,7 +7,7 @@ const CONTINUATION_MS = 5 * 60 * 1000;
 interface Props {
   messages: Message[];
   typingUsers?: Record<string, string>;
-  onCreateTask: (msg: Message, prefill?: InlineTaskPrefill) => void;
+  onCreateTask?: (msg: Message, prefill?: InlineTaskPrefill) => void;
   onTaskLinked: (msgId: string, task: Task) => void;
   onMessageUpdated: (msgId: string, content: string, editedAt?: string) => void;
   onMessageDeleted: (msgId: string) => void;
@@ -16,41 +17,42 @@ interface Props {
 }
 
 export default function MessageList({ messages, typingUsers = {}, ...cb }: Props) {
+  const grouped = useMemo(() =>
+    messages.map((msg, i) => {
+      const prev = messages[i - 1];
+      const next = messages[i + 1];
+      const isContinuation = !!prev
+        && !msg.is_system && !prev.is_system
+        && !msg.deleted   && !prev.deleted
+        && msg.sender_id === prev.sender_id
+        && (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) < CONTINUATION_MS;
+      const isGroupEnd = !next
+        || !!next.is_system || !!next.deleted
+        || next.sender_id !== msg.sender_id
+        || !!msg.is_system  || !!msg.deleted
+        || (new Date(next.created_at).getTime() - new Date(msg.created_at).getTime()) >= CONTINUATION_MS;
+      return { msg, isContinuation, isGroupEnd };
+    }),
+    [messages]
+  );
+
   return (
     <>
-      {messages.map((msg, i) => {
-        const prev = messages[i - 1];
-        const next = messages[i + 1];
-
-        const isContinuation = !!prev
-          && !msg.is_system && !prev.is_system
-          && !msg.deleted  && !prev.deleted
-          && msg.sender_id === prev.sender_id
-          && (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) < CONTINUATION_MS;
-
-        // End of a group when the next message is NOT a continuation of this one
-        const isGroupEnd = !next
-          || !!next.is_system || !!next.deleted
-          || next.sender_id !== msg.sender_id
-          || !!msg.is_system  || !!msg.deleted
-          || (new Date(next.created_at).getTime() - new Date(msg.created_at).getTime()) >= CONTINUATION_MS;
-
-        return (
-          <MessageBubble
-            key={msg.id}
-            msg={msg}
-            isContinuation={isContinuation}
-            isGroupEnd={isGroupEnd}
-            onCreateTask={cb.onCreateTask}
-            onTaskLinked={cb.onTaskLinked}
-            onMessageUpdated={cb.onMessageUpdated}
-            onMessageDeleted={cb.onMessageDeleted}
-            onReply={cb.onReply}
-            onReactionToggle={cb.onReactionToggle}
-            onShare={cb.onShare}
-          />
-        );
-      })}
+      {grouped.map(({ msg, isContinuation, isGroupEnd }) => (
+        <MessageBubble
+          key={msg.id}
+          msg={msg}
+          isContinuation={isContinuation}
+          isGroupEnd={isGroupEnd}
+          onCreateTask={cb.onCreateTask}
+          onTaskLinked={cb.onTaskLinked}
+          onMessageUpdated={cb.onMessageUpdated}
+          onMessageDeleted={cb.onMessageDeleted}
+          onReply={cb.onReply}
+          onReactionToggle={cb.onReactionToggle}
+          onShare={cb.onShare}
+        />
+      ))}
 
       {/* Typing indicator */}
       {Object.keys(typingUsers).length > 0 && (

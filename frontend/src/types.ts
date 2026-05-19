@@ -1,14 +1,5 @@
 // Shared domain types used across frontend stores and components
 
-export interface PipelineDeal {
-  id: string;
-  company: string;
-  detail: string;
-  value: string;
-  prob: string;
-  stage: 'lead' | 'qualified' | 'proposal' | 'closing';
-}
-
 export interface User {
   id: string;
   name: string;

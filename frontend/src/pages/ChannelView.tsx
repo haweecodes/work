@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
@@ -11,22 +11,21 @@ import MessageComposer from '../components/MessageComposer';
 import { MessageListSkeleton } from '../components/Skeleton';
 import type { Message, MentionPriority } from '../types';
 
-const INITIAL_PIPELINE_DEALS = [
-  { id: 'p1', company: 'Acme Corp',        detail: 'Enterprise Plan · 450 seats', value: '$84,000', prob: '72% close probability', stage: 'proposal' as const },
-  { id: 'p2', company: 'Bright Solutions', detail: 'Growth Plan · 80 seats',      value: '$12,400', prob: '55% close probability', stage: 'qualified' as const },
-  { id: 'p3', company: 'Meridian Labs',    detail: 'Starter Plan · 25 seats',     value: '$3,600',  prob: '90% close probability', stage: 'closing' as const },
-];
-
-
 export default function ChannelView() {
   const { channelId } = useParams<{ channelId: string }>();
-  const { channels, members, currentWorkspace } = useWorkspaceStore();
-  const { clearThreadUnread } = useUIStore();
-  const { activeSidebar, openSidebar, closeSidebar, openShareModal,
-          setPipelineDeals, pipelineDeals } = useUIStore();
+  const channels         = useWorkspaceStore(s => s.channels);
+  const members          = useWorkspaceStore(s => s.members);
+  const currentWorkspace = useWorkspaceStore(s => s.currentWorkspace);
+  const activeSidebar    = useUIStore(s => s.activeSidebar);
+  const openSidebar      = useUIStore(s => s.openSidebar);
+  const closeSidebar     = useUIStore(s => s.closeSidebar);
+  const openShareModal   = useUIStore(s => s.openShareModal);
+  const clearThreadUnread  = useUIStore(s => s.clearThreadUnread);
   const clearChannelUnread = useUIStore(s => s.clearChannelUnread);
   const { user } = useAuthStore();
-  const { boards, columns, fetchColumns } = useBoardStore();
+  const boards       = useBoardStore(s => s.boards);
+  const columns      = useBoardStore(s => s.columns);
+  const fetchColumns = useBoardStore(s => s.fetchColumns);
 
   const endRef = useRef<HTMLDivElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,21 +49,21 @@ export default function ChannelView() {
   const [mentionPriorities, setMentionPriorities] = useState<MentionPriority[]>([]);
   const [priorityAlertRecipients, setPriorityAlertRecipients] = useState<Array<{ userId: string; name: string }>>([]);
 
-  const handleMentionPrioritySet = (name: string, userId: string, priority: string) => {
+  const handleMentionPrioritySet = useCallback((name: string, userId: string, priority: string) => {
     setMentionPriorities(prev => [
       ...prev.filter(mp => mp.userId !== userId),
       { userId, name, priority: priority as MentionPriority['priority'] },
     ]);
-  };
+  }, []);
 
-  const handlePriorityAlertMentionAdd = (userId: string, name: string) => {
+  const handlePriorityAlertMentionAdd = useCallback((userId: string, name: string) => {
     setPriorityAlertRecipients(prev => [
       ...prev.filter(r => r.userId !== userId),
       { userId, name },
     ]);
-  };
+  }, []);
 
-  const handleSubmit = (e: React.SyntheticEvent) => {
+  const handleSubmit = useCallback((e: React.SyntheticEvent) => {
     const alertText = content.trim();
     handleSend(e, { importance, mentionPriorities });
     if (priorityAlertRecipients.length > 0 && alertText) {
@@ -77,7 +76,7 @@ export default function ChannelView() {
     setImportance('normal');
     setMentionPriorities([]);
     setPriorityAlertRecipients([]);
-  };
+  }, [content, handleSend, importance, mentionPriorities, priorityAlertRecipients, currentWorkspace?.id]);
 
   // ── Board columns ─────────────────────────────────────────────────────────
   const activeBoard = boards[0];
@@ -87,12 +86,6 @@ export default function ChannelView() {
   useEffect(() => {
     if (activeBoard && columns.length === 0) fetchColumns(activeBoard.id);
   }, [activeBoard?.id]);
-
-  // ── Initialize pipeline deals (once per workspace) ────────────────────────
-  useEffect(() => {
-    if (pipelineDeals.length === 0) setPipelineDeals(INITIAL_PIPELINE_DEALS);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ── Open thread from URL param (e.g. navigate from shared message) ────────
   const threadIdParam = searchParams.get('threadId');
@@ -106,16 +99,18 @@ export default function ChannelView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadIdParam, messages.length]);
 
-  const handleReply = (msg: Message) => {
+  const handleReply = useCallback((msg: Message) => {
     openSidebar({ type: 'thread', message: msg, channelId: channelId! });
     clearThreadUnread(msg.id);
-  };
+  }, [openSidebar, channelId, clearThreadUnread]);
 
-  const handleArchive = async () => {
+  const handleArchive = useCallback(async () => {
     if (!channelId || !confirm('Are you sure you want to archive this channel?')) return;
     try { await client.patch(`/api/channels/${channelId}/archive`); }
     catch { alert('Failed to archive channel'); }
-  };
+  }, [channelId]);
+
+  const tasksActive = activeSidebar?.type === 'tasks';
 
   return (
     <div className="flex h-full relative">
@@ -140,26 +135,19 @@ export default function ChannelView() {
             </p>
           </div>
           <div className="flex items-baseline gap-6 ml-auto">
-            {(['tasks'] as const).map(tab => {
-              const isActive = activeSidebar?.type === tab;
-              return (
-                <button key={tab}
-                  onClick={() => isActive ? closeSidebar() : openSidebar({ type: tab })}
-                  style={{
-                    fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
-                    color: isActive ? 'var(--ink)' : 'var(--muted)',
-                    borderBottom: `1px solid ${isActive ? 'var(--ink)' : 'transparent'}`,
-                    paddingBottom: 4, background: 'none',
-                  }}
-                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--ink)'; }}
-                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--muted)'; }}
-                >
-                  {tab === 'tasks'
-                    ? `Tasks${myTaskCount > 0 ? ` · ${myTaskCount}` : ''}`
-                    : `Pipeline${pipelineDeals.length > 0 ? ` · ${pipelineDeals.length}` : ''}`}
-                </button>
-              );
-            })}
+            <button
+              onClick={() => tasksActive ? closeSidebar() : openSidebar({ type: 'tasks' })}
+              style={{
+                fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+                color: tasksActive ? 'var(--ink)' : 'var(--muted)',
+                borderBottom: `1px solid ${tasksActive ? 'var(--ink)' : 'transparent'}`,
+                paddingBottom: 4, background: 'none',
+              }}
+              onMouseEnter={e => { if (!tasksActive) e.currentTarget.style.color = 'var(--ink)'; }}
+              onMouseLeave={e => { if (!tasksActive) e.currentTarget.style.color = 'var(--muted)'; }}
+            >
+              Tasks{myTaskCount > 0 ? ` · ${myTaskCount}` : ''}
+            </button>
             {canArchive && (
               <button onClick={handleArchive}
                 style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}
@@ -186,7 +174,6 @@ export default function ChannelView() {
           <MessageList
             messages={messages}
             typingUsers={typingUsers}
-            onCreateTask={() => {}}
             onTaskLinked={handleTaskLinked}
             onMessageUpdated={handleMsgUpdated}
             onMessageDeleted={handleMsgDeleted}

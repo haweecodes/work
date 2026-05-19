@@ -4,24 +4,20 @@ import type { Board, Column, Task } from '../types';
 
 interface BoardState {
   boards: Board[];
-  currentBoard: { id: string } | null;
   columns: Column[];
   selectedTask: Task | null;
   fetchBoards: (workspaceId: string) => Promise<Board[]>;
   fetchColumns: (boardId: string) => Promise<Column[]>;
-  setCurrentBoard: (board: { id: string } | null) => void;
   setSelectedTask: (task: Task | null) => void;
   updateTaskInColumn: (updatedTask: Task) => void;
   removeTask: (taskId: string) => void;
   moveTaskLocally: (taskId: string, fromColId: string, toColId: string, newIndex: number) => void;
   addColumn: (col: Omit<Column, 'tasks'>) => void;
-  addTaskToColumn: (task: Task) => void;
   updateBoardName: (id: string, name: string) => void;
 }
 
 const useBoardStore = create<BoardState>((set) => ({
   boards: [],
-  currentBoard: null,
   columns: [],
   selectedTask: null,
 
@@ -33,19 +29,16 @@ const useBoardStore = create<BoardState>((set) => ({
 
   fetchColumns: async (boardId: string) => {
     const { data } = await client.get<Column[]>(`/api/boards/${boardId}/columns`);
-    set({ columns: data, currentBoard: { id: boardId } });
+    set({ columns: data });
     return data;
   },
 
-  setCurrentBoard: (board) => set({ currentBoard: board }),
   setSelectedTask: (task) => set({ selectedTask: task }),
 
   updateTaskInColumn: (updatedTask: Task) => {
     set((s) => ({
       columns: s.columns.map(col => {
-        // If this is the column the task now belongs to:
         if (col.id === updatedTask.column_id) {
-          // Update it if it's already there, or add it if it moved here
           return {
             ...col,
             tasks: col.tasks.some(t => t.id === updatedTask.id)
@@ -53,7 +46,6 @@ const useBoardStore = create<BoardState>((set) => ({
               : [...col.tasks, updatedTask]
           };
         }
-        // If it's any other column, ensure the task is removed (in case it just moved out)
         return {
           ...col,
           tasks: col.tasks.filter(t => t.id !== updatedTask.id)
@@ -92,14 +84,6 @@ const useBoardStore = create<BoardState>((set) => ({
 
   updateBoardName: (id: string, name: string) =>
     set(s => ({ boards: s.boards.map(b => b.id === id ? { ...b, name } : b) })),
-
-  addTaskToColumn: (task: Task) => {
-    set((s) => ({
-      columns: s.columns.map(col =>
-        col.id === task.column_id ? { ...col, tasks: [...col.tasks, task] } : col
-      )
-    }));
-  },
 }));
 
 export default useBoardStore;

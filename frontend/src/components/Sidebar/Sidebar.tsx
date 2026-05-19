@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { Hash, Lock, MessageCircle, Kanban, LogOut, type LucideIcon } from 'lucide-react';
 import { useNavigate, NavLink } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import useWorkspaceStore from '../../store/workspaceStore';
@@ -30,10 +31,11 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-function SectionLabel({ children, onAdd }: { children: React.ReactNode; onAdd?: () => void }) {
+function SectionLabel({ children, icon: Icon, onAdd }: { children: React.ReactNode; icon?: LucideIcon; onAdd?: () => void }) {
   return (
     <div className="flex items-center justify-between mb-2">
-      <span style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 500 }}>
+      <span className="flex items-center gap-1.5" style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 500 }}>
+        {Icon && <Icon size={11} />}
         {children}
       </span>
       {onAdd && (
@@ -49,8 +51,8 @@ function SectionLabel({ children, onAdd }: { children: React.ReactNode; onAdd?: 
 
 /* ─── nav item ───────────────────────────────────────────── */
 
-function NavItem({ to, label, title, unread = 0, prefix }: {
-  to: string; label: string; title?: string; unread?: number; prefix?: string;
+function NavItem({ to, label, title, unread = 0, icon: Icon }: {
+  to: string; label: string; title?: string; unread?: number; icon?: LucideIcon;
 }) {
   return (
     <NavLink
@@ -64,8 +66,8 @@ function NavItem({ to, label, title, unread = 0, prefix }: {
           {isActive && (
             <span style={{ display: 'inline-block', width: 6, height: 1, background: 'var(--ink)', marginRight: 6, verticalAlign: 'middle', transform: 'translateY(-2px)', flexShrink: 0 }} />
           )}
-          {prefix && (
-            <span style={{ color: isActive ? 'var(--ink)' : 'var(--faint)', marginRight: 3, fontSize: 13, flexShrink: 0 }}>{prefix}</span>
+          {Icon && (
+            <Icon size={12} style={{ color: isActive ? 'var(--ink)' : 'var(--faint)', marginRight: 5, flexShrink: 0 }} />
           )}
           <span
             className="truncate flex-1"
@@ -85,31 +87,29 @@ function NavItem({ to, label, title, unread = 0, prefix }: {
 
 /* ─── icons ──────────────────────────────────────────────── */
 
-const IconBoard = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
-  </svg>
-);
-const IconSignOut = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-  </svg>
-);
-
 /* ─── main component ─────────────────────────────────────── */
 
 export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const {
-    workspaces, currentWorkspace, channels, dmThreads, members,
-    setCurrentWorkspace, addChannel, fetchDmThreads,
-  } = useWorkspaceStore();
-  const { boards, fetchBoards } = useBoardStore();
-  const { openCreateBoard, openInvite, channelUnread, dmUnread, activeSidebar, openSidebar, closeSidebar } = useUIStore();
-  const notifUnread = useNotificationStore(s => s.unreadCount);
+  const workspaces          = useWorkspaceStore(s => s.workspaces);
+  const currentWorkspace    = useWorkspaceStore(s => s.currentWorkspace);
+  const channels            = useWorkspaceStore(s => s.channels);
+  const dmThreads           = useWorkspaceStore(s => s.dmThreads);
+  const members             = useWorkspaceStore(s => s.members);
+  const setCurrentWorkspace = useWorkspaceStore(s => s.setCurrentWorkspace);
+  const addChannel          = useWorkspaceStore(s => s.addChannel);
+  const fetchDmThreads      = useWorkspaceStore(s => s.fetchDmThreads);
+  const boards              = useBoardStore(s => s.boards);
+  const fetchBoards         = useBoardStore(s => s.fetchBoards);
+  const openCreateBoard     = useUIStore(s => s.openCreateBoard);
+  const openInvite          = useUIStore(s => s.openInvite);
+  const channelUnread       = useUIStore(s => s.channelUnread);
+  const dmUnread            = useUIStore(s => s.dmUnread);
+  const activeSidebar       = useUIStore(s => s.activeSidebar);
+  const openSidebar         = useUIStore(s => s.openSidebar);
+  const closeSidebar        = useUIStore(s => s.closeSidebar);
+  const notifUnread         = useNotificationStore(s => s.unreadCount);
   const showNotif = activeSidebar?.type === 'notifications';
   const [showWorkspaces, setShowWorkspaces] = useState(false);
   const [addingChannel, setAddingChannel] = useState(false);
@@ -117,7 +117,16 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const [newChannelName, setNewChannelName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
 
-  const handleAddChannel = async (e: React.FormEvent) => {
+  const memberThreadMap = useMemo(() => {
+    const map = new Map<string, DmThread>();
+    dmThreads.forEach(t => {
+      const other = t.participants?.find(p => p.id !== user?.id);
+      if (other) map.set(other.id, t);
+    });
+    return map;
+  }, [dmThreads, user?.id]);
+
+  const handleAddChannel = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newChannelName.trim() || !currentWorkspace) return;
     const { data } = await client.post<Channel>('/api/channels', {
@@ -130,9 +139,9 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     setIsPrivate(false);
     setAddingChannel(false);
     navigate(`/channel/${data.id}`);
-  };
+  }, [newChannelName, currentWorkspace, isPrivate, addChannel, navigate]);
 
-  const handleSwitchWorkspace = async (ws: Workspace) => {
+  const handleSwitchWorkspace = useCallback(async (ws: Workspace) => {
     if (ws.id === currentWorkspace?.id) { setShowWorkspaces(false); return; }
     setShowWorkspaces(false);
     setAddingChannel(false);
@@ -140,9 +149,9 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     await setCurrentWorkspace(ws);
     await fetchBoards(ws.id);
     navigate('/');
-  };
+  }, [currentWorkspace?.id, setCurrentWorkspace, fetchBoards, navigate]);
 
-  const handleStartDM = async (memberId: string) => {
+  const handleStartDM = useCallback(async (memberId: string) => {
     if (!user || memberId === user.id || !currentWorkspace) return;
     const { data } = await client.post<DmThread>('/api/dms/threads', {
       workspace_id: currentWorkspace.id,
@@ -151,7 +160,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     await fetchDmThreads(currentWorkspace.id);
     navigate(`/dm/${data.id}`);
     onClose?.();
-  };
+  }, [user, currentWorkspace, fetchDmThreads, navigate, onClose]);
 
   return (
     <div
@@ -216,7 +225,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {/* Channels */}
         <section>
-          <SectionLabel onAdd={() => setAddingChannel(true)}>Channels</SectionLabel>
+          <SectionLabel icon={Hash} onAdd={() => setAddingChannel(true)}>Channels</SectionLabel>
 
           {addingChannel && (
             <form onSubmit={handleAddChannel} className="mb-2 space-y-1">
@@ -236,7 +245,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
                 onClick={() => setIsPrivate(p => !p)}
                 style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '0.06em' }}
               >
-                {isPrivate ? '🔒 Private' : '# Public'} — toggle
+                {isPrivate ? <><Lock className="inline w-3 h-3 mr-1" />Private</> : <><Hash className="inline w-3 h-3 mr-1" />Public</>} — toggle
               </button>
             </form>
           )}
@@ -246,7 +255,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
               <NavItem
                 key={ch.id}
                 to={`/channel/${ch.id}`}
-                prefix={ch.is_private ? '🔒' : '#'}
+                icon={ch.is_private ? Lock : Hash}
                 label={ch.name}
                 unread={channelUnread[ch.id] || 0}
               />
@@ -256,13 +265,11 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {/* Direct Messages */}
         <section>
-          <SectionLabel>Direct Messages</SectionLabel>
+          <SectionLabel icon={MessageCircle}>Direct Messages</SectionLabel>
 
           <div className="space-y-0">
             {members.filter(m => m.id !== user?.id).map(m => {
-              const thread = dmThreads.find(
-                t => t.participants?.some(p => p.id === m.id) && t.participants?.some(p => p.id === user?.id),
-              );
+              const thread = memberThreadMap.get(m.id);
               const unread = thread ? (dmUnread[thread.id] || 0) : 0;
 
               const content = (isActive = false) => (
@@ -327,7 +334,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {/* Boards */}
         <section>
-          <SectionLabel onAdd={() => openCreateBoard()}>Boards</SectionLabel>
+          <SectionLabel icon={Kanban} onAdd={() => openCreateBoard()}>Boards</SectionLabel>
           <div className="space-y-0">
             {boards.map(b => (
               <NavItem key={b.id} to={`/board/${b.id}`} label={b.name} />
@@ -389,7 +396,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
             onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}
           >
-            <IconSignOut />
+            <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

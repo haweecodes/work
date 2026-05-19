@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AtSign, ClipboardCheck, Clock, RefreshCw, MessageSquare, AlertTriangle, type LucideIcon } from 'lucide-react';
 import useNotificationStore from '../store/notificationStore';
 import useAuthStore from '../store/authStore';
 import client from '../api/client';
@@ -41,6 +42,15 @@ const TYPE_LABEL_COLOR: Record<string, string> = {
   mention:        '#C47B2A',
   task_assigned:  'var(--muted)',
   priority_alert: 'var(--faint)',  // resolved — very muted
+};
+
+const TYPE_ICON: Record<string, LucideIcon> = {
+  mention:              AtSign,
+  task_assigned:        ClipboardCheck,
+  task_due:             Clock,
+  task_update_request:  RefreshCw,
+  task_update_response: MessageSquare,
+  priority_alert:       AlertTriangle,
 };
 
 const UPDATE_STATUS_COLORS: Record<string, string> = {
@@ -95,10 +105,12 @@ function NotificationList({ notifications, onNotifClick, markRead }: {
         const showResponseButtons = n.type === 'task_update_request' && isUnread && !respondedIds.has(n.id);
         const isBusy = submitting.has(n.id);
 
+        const NotifIcon = TYPE_ICON[n.type];
         const header = (
           <div className="flex items-baseline justify-between gap-2 mb-1">
-            {label && (
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
+            {(label || NotifIcon) && (
+              <span className="flex items-center gap-1" style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
+                {NotifIcon && <NotifIcon size={11} style={{ color: labelColor, flexShrink: 0 }} />}
                 {label}
               </span>
             )}

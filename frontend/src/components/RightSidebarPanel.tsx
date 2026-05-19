@@ -6,7 +6,6 @@ import useAuthStore from '../store/authStore';
 import NotificationPanel from './NotificationPanel';
 import BoardUpdatesPanel from './BoardUpdatesPanel';
 import TaskTray from './TaskTray';
-import PipelinePanel from './PipelinePanel';
 
 const TaskDetailPanel = lazy(() => import('./TaskDetailPanel'));
 const ThreadPanel     = lazy(() => import('./ThreadPanel'));
@@ -34,8 +33,7 @@ const SKELETON = (
 );
 
 export default function RightSidebarPanel() {
-  const { activeSidebar, closeSidebar, openShareModal, closeShareModal, shareMessage,
-          pipelineDeals, addPipelineDeal } = useUIStore();
+  const { activeSidebar, closeSidebar, openShareModal, closeShareModal, shareMessage } = useUIStore();
   const selectedTask = useBoardStore(s => s.selectedTask);
   const { boards, columns } = useBoardStore();
   const user = useAuthStore(s => s.user);
@@ -52,11 +50,10 @@ export default function RightSidebarPanel() {
   const showUpdates       = activeSidebar?.type === 'board-updates';
   const showThread        = activeSidebar?.type === 'thread';
   const showTasks         = activeSidebar?.type === 'tasks';
-  const showPipeline      = activeSidebar?.type === 'pipeline';
   // Task detail shows only when no other panel has been explicitly opened.
-  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showPipeline;
+  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks;
 
-  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showPipeline) return null;
+  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks) return null;
 
   return (
     <>
@@ -98,20 +95,7 @@ export default function RightSidebarPanel() {
             onClose={closeSidebar}
           />
         )}
-        {showPipeline && (
-          <PipelinePanel
-            deals={pipelineDeals}
-            onAddDeal={() => addPipelineDeal({
-              id: `p-${Date.now()}`,
-              company: 'New Opportunity',
-              detail: 'Detected from conversation',
-              value: 'TBD',
-              prob: 'New lead',
-              stage: 'lead',
-            })}
-            onClose={closeSidebar}
-          />
-        )}
+
       </div>
 
       {/* Global ShareModal — rendered outside the sidebar div so it stacks above it */}

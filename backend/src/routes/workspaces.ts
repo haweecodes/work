@@ -63,7 +63,7 @@ router.get('/:id/members', authMiddleware, requireWorkspaceMember('id'), async (
   res.json(members);
 });
 
-router.post('/:id/invite', authMiddleware, async (req: Request, res: Response) => {
+router.post('/:id/invite', authMiddleware, requireWorkspaceMember('id'), async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     const user = await get('SELECT id FROM users WHERE email = ?', [email]);

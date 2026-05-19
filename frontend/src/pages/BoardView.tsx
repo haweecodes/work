@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useContext, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useContext, lazy, Suspense, useMemo, useCallback, memo } from 'react';
+import { Search, RefreshCw, Plus, Pencil } from 'lucide-react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -40,19 +41,32 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 // ── TaskCard ──────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, onSelect }: { task: Task; onSelect?: () => void }) {
+const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task: Task; onSelect?: () => void; doneColumnId?: string }) {
   const [_, setSearchParams] = useSearchParams();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSelfDragging } = useSortable({ id: task.id });
-  const { setSelectedTask, columns } = useBoardStore();
-  const [copiedKey, setCopiedKey] = useState(false);
-  const style = { transform: CSS.Transform.toString(transform), transition };
+  const setSelectedTask = useBoardStore(s => s.setSelectedTask);
+  const selectedTask    = useBoardStore(s => s.selectedTask);
+  const columns         = useBoardStore(s => s.columns);
+  const isSelected      = selectedTask?.id === task.id;
 
-  const allTasks = columns.flatMap(c => c.tasks ?? []);
-  const subtasks = allTasks.filter(t => t.parent_task_id === task.id);
+  // Merge dnd-kit's setNodeRef with our own ref so we can scrollIntoView
+  const cardElRef = useRef<HTMLDivElement | null>(null);
+  const mergedRef = useCallback((node: HTMLDivElement | null) => {
+    setNodeRef(node);
+    cardElRef.current = node;
+  }, [setNodeRef]);
+
+  useEffect(() => {
+    if (isSelected) cardElRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [isSelected]);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const style = { transform: CSS.Transform.toString(transform), transition } as React.CSSProperties;
+
+  const allTasks = useMemo(() => columns.flatMap(c => c.tasks ?? []), [columns]);
+  const subtasks = useMemo(() => allTasks.filter(t => t.parent_task_id === task.id), [allTasks, task.id]);
   const subtasksCount = subtasks.length;
-  const doneColumnId = [...columns].sort((a, b) => (b.position ?? 0) - (a.position ?? 0))[0]?.id;
-  const completedSubtasksCount = subtasks.filter(t => t.column_id === doneColumnId).length;
-  const parentTask = task.parent_task_id ? allTasks.find(t => t.id === task.parent_task_id) : null;
+  const completedSubtasksCount = useMemo(() => subtasks.filter(t => t.column_id === doneColumnId).length, [subtasks, doneColumnId]);
+  const parentTask = useMemo(() => task.parent_task_id ? allTasks.find(t => t.id === task.parent_task_id) : null, [allTasks, task.parent_task_id]);
 
   const handleCopyKey = (e: React.MouseEvent) => {
     e.stopPropagation(); // prevent opening the detail panel
@@ -65,11 +79,11 @@ function TaskCard({ task, onSelect }: { task: Task; onSelect?: () => void }) {
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      className={`relative bg-white rounded-xl border border-gray-100 shadow-card p-3.5 cursor-pointer
+      ref={mergedRef}
+      className={`relative bg-white rounded-xl shadow-card p-3.5 cursor-pointer
         hover:border-primary-200 hover:shadow-md transition-all duration-150 group flex flex-col gap-3
         ${isSelfDragging ? 'opacity-40' : ''}`}
+      style={{ ...style, border: isSelected ? '2px solid #6366f1' : '1px solid #F3F4F6' }}
       onClick={() => {
         onSelect?.();
         if (task.task_key) {
@@ -174,7 +188,11 @@ function TaskCard({ task, onSelect }: { task: Task; onSelect?: () => void }) {
       )}
     </div>
   );
-}
+}, (prev, next) =>
+  prev.task === next.task &&
+  prev.onSelect === next.onSelect &&
+  prev.doneColumnId === next.doneColumnId
+);
 
 // ── Column ────────────────────────────────────────────────────────────────────
 
@@ -206,7 +224,9 @@ function EmptyDropZone({ colId, onAddTask }: { colId: string; onAddTask: () => v
   );
 }
 
-function Column({ col, onAddTask, onTaskSelect }: { col: ColumnType; onAddTask: (colId: string) => void; onTaskSelect: () => void }) {
+const Column = memo(function Column({ col, onAddTask, onTaskSelect, doneColumnId }: {
+  col: ColumnType; onAddTask: (colId: string) => void; onTaskSelect: () => void; doneColumnId?: string;
+}) {
   const isEmpty = !col.tasks || col.tasks.length === 0;
   const sortableItems = isEmpty ? [] : col.tasks!.map(t => t.id);
 
@@ -235,13 +255,13 @@ function Column({ col, onAddTask, onTaskSelect }: { col: ColumnType; onAddTask: 
       ) : (
         <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
           <div className="flex-1 overflow-y-auto space-y-2 min-h-[60px]" style={{ scrollbarWidth: 'thin' }}>
-            {col.tasks!.map(task => <TaskCard key={task.id} task={task} onSelect={onTaskSelect} />)}
+            {col.tasks!.map(task => <TaskCard key={task.id} task={task} onSelect={onTaskSelect} doneColumnId={doneColumnId} />)}
           </div>
         </SortableContext>
       )}
     </div>
   );
-}
+});
 
 // ── BoardView ─────────────────────────────────────────────────────────────────
 
@@ -251,7 +271,7 @@ export default function BoardView() {
   const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn, selectedTask, setSelectedTask, updateBoardName } = useBoardStore();
   const socketRef = useContext(SocketContext);
   const user = useAuthStore(s => s.user);
-  const { role } = useWorkspaceStore();
+  const role = useWorkspaceStore(s => s.role);
   const { activeSidebar, openSidebar, closeSidebar } = useUIStore();
   const showUpdatesPanel = activeSidebar?.type === 'board-updates' && activeSidebar.boardId === boardId;
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -275,6 +295,25 @@ export default function BoardView() {
   const board = boards.find(b => b.id === boardId);
   const canRequest = !!user && (role === 'admin' || board?.created_by === user.id);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const doneColumnId = useMemo(
+    () => [...columns].sort((a, b) => (b.position ?? 0) - (a.position ?? 0))[0]?.id,
+    [columns]
+  );
+
+  const filteredColumns = useMemo(() =>
+    columns.map(col => ({
+      ...col,
+      tasks: (col.tasks ?? []).filter(t => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        return t.title.toLowerCase().includes(q) || t.task_key?.toLowerCase().includes(q);
+      }),
+    })),
+    [columns, searchQuery]
+  );
+
+  const handleTaskSelect = useCallback(() => closeSidebar(), [closeSidebar]);
 
   // Open updates panel when navigated from a task_update_response notification
   useEffect(() => {
@@ -471,6 +510,7 @@ export default function BoardView() {
               autoFocus
               style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)', background: 'transparent', border: 'none', borderBottom: '1px solid var(--ink)', outline: 'none', width: 280, fontFamily: 'inherit' }}
               value={nameValue}
+              maxLength={80}
               onChange={e => setNameValue(e.target.value)}
               onBlur={submitNameEdit}
               onKeyDown={e => {
@@ -485,12 +525,7 @@ export default function BoardView() {
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink-2)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink)')}>
               {board?.name || 'Board'}
-              <svg className="w-3.5 h-3.5 flex-shrink-0"
-                style={{ color: 'var(--faint)', marginBottom: 1 }}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
+              <Pencil size={14} style={{ color: 'var(--faint)', flexShrink: 0, marginBottom: 1 }} />
             </button>
           )}
           <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -499,9 +534,7 @@ export default function BoardView() {
         </div>
         <div className="flex items-baseline gap-6">
           <div className="relative flex items-baseline">
-            <svg className="w-3.5 h-3.5 absolute left-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--faint)', top: '50%', transform: 'translateY(-50%)' }}>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <Search size={14} style={{ color: 'var(--faint)', position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)' }} />
             <input
               type="text"
               placeholder="Search"
@@ -530,10 +563,14 @@ export default function BoardView() {
             }}
             onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
             onMouseLeave={e => { if (!showUpdatesPanel) e.currentTarget.style.color = 'var(--muted)'; }}>
-            Request Updates
+            <span className="flex items-center gap-1.5">
+              <RefreshCw size={12} />
+              Request Updates
+            </span>
           </button>
-          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary">
-            + New task
+          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary flex items-center gap-1.5">
+            <Plus size={14} />
+            New task
           </button>
         </div>
       </div>
@@ -548,17 +585,9 @@ export default function BoardView() {
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-4 h-full min-w-max">
-            {columns.map(col => {
-              const filteredCol = {
-                ...col,
-                tasks: (col.tasks ?? []).filter(t => {
-                  if (!searchQuery) return true;
-                  const q = searchQuery.toLowerCase();
-                  return t.title.toLowerCase().includes(q) || t.task_key?.toLowerCase().includes(q);
-                })
-              };
-              return <Column key={col.id} col={filteredCol} onAddTask={handleAddTask} onTaskSelect={closeSidebar} />;
-            })}
+            {filteredColumns.map(col => (
+              <Column key={col.id} col={col} onAddTask={handleAddTask} onTaskSelect={handleTaskSelect} doneColumnId={doneColumnId} />
+            ))}
 
             {/* Inline "Add column" card */}
             {showAddColumn ? (

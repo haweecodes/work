@@ -22,7 +22,7 @@ router.patch('/read', async (req: Request, res: Response) => {
       await run('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, req.user.id]);
     }
   } else {
-    await run('UPDATE notifications SET is_read = 1 WHERE user_id = ?', [req.user.id]);
+    await run('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND workspace_id = ?', [req.user.id, req.workspaceId]);
   }
   res.json({ success: true });
 });
@@ -44,10 +44,10 @@ router.post('/priority', async (req: Request, res: Response) => {
       if (!io) return;
       const fid = uuidv4();
       await run(
-        `INSERT INTO notifications (id, user_id, type, message, is_read) VALUES (?, ?, 'system', ?, 0)`,
-        [fid, req.user.id, feedbackMsg]
+        `INSERT INTO notifications (id, user_id, type, message, workspace_id, is_read) VALUES (?, ?, 'system', ?, ?, 0)`,
+        [fid, req.user.id, feedbackMsg, workspace_id]
       );
-      io.to(`user:${req.user.id}`).emit('notification', { id: fid, type: 'system', message: feedbackMsg });
+      io.to(`user:${req.user.id}`).emit('notification', { id: fid, type: 'system', message: feedbackMsg, workspace_id });
     };
 
     const created: string[] = [];

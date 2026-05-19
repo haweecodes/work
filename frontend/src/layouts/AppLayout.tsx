@@ -38,6 +38,10 @@ export default function AppLayout() {
         e.preventDefault();
         setShowSearch(v => !v);
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('fw:focus-composer'));
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);

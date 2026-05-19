@@ -10,7 +10,7 @@ export const setIo = (socketIo: Server) => { io = socketIo; };
 
 async function sendAssignmentNotification(
   userId: string, _actorId: string, actorName: string,
-  taskId: string, taskTitle: string, _boardId: string,
+  taskId: string, taskTitle: string, workspaceId: string,
   type: 'task_assigned' | 'task_unassigned'
 ) {
   const notifId = uuidv4();
@@ -19,11 +19,10 @@ async function sendAssignmentNotification(
     : `${actorName} removed you from "${taskTitle}"`;
 
   await run(
-    'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
-    [notifId, userId, type, taskId, 'task', msg]
+    'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [notifId, userId, type, taskId, 'task', msg, workspaceId]
   );
-  if (io) io.to(`user:${userId}`).emit('notification', { id: notifId, type, message: msg, reference_id: taskId, reference_type: 'task' });
-  // System messages to DMs / channels removed — notification-only approach
+  if (io) io.to(`user:${userId}`).emit('notification', { id: notifId, type, message: msg, reference_id: taskId, reference_type: 'task', workspace_id: workspaceId });
 }
 
 router.post('/', async (req: Request, res: Response) => {
@@ -31,6 +30,12 @@ router.post('/', async (req: Request, res: Response) => {
     const { board_id, column_id, title, description, priority, due_date, assignee_ids, linked_message_id, parent_task_id } = req.body;
     if (!board_id || !column_id || !title) {
       return res.status(400).json({ error: 'board_id, column_id, title required' });
+    }
+    if (typeof title !== 'string' || title.trim().length === 0 || title.length > 500) {
+      return res.status(400).json({ error: 'Task title must be between 1 and 500 characters' });
+    }
+    if (description && (typeof description !== 'string' || description.length > 10000)) {
+      return res.status(400).json({ error: 'Task description must be 10000 characters or fewer' });
     }
 
     const board = await get(
@@ -62,7 +67,7 @@ router.post('/', async (req: Request, res: Response) => {
       for (const uid of assignee_ids) {
         await run('INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [id, uid]);
         if (uid !== req.user?.id) {
-          await sendAssignmentNotification(uid, req.user!.id, actorName, id, title, board_id, 'task_assigned');
+          await sendAssignmentNotification(uid, req.user!.id, actorName, id, title, req.workspaceId!, 'task_assigned');
         }
       }
     }
@@ -165,7 +170,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         if (!currentIds.has(uid)) {
           await run('INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [req.params.id, uid]);
           if (uid !== req.user?.id) {
-            await sendAssignmentNotification(String(uid), req.user!.id, actorName, String(req.params.id), String(task.title), task.board_id, 'task_assigned');
+            await sendAssignmentNotification(String(uid), req.user!.id, actorName, String(req.params.id), String(task.title), req.workspaceId!, 'task_assigned');
           }
         }
       }
@@ -173,7 +178,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         if (!newIds.has(uid)) {
           await run('DELETE FROM task_assignees WHERE task_id = ? AND user_id = ?', [req.params.id, uid]);
           if (uid !== req.user?.id) {
-            await sendAssignmentNotification(String(uid), req.user!.id, actorName, String(req.params.id), String(task.title), task.board_id, 'task_unassigned');
+            await sendAssignmentNotification(String(uid), req.user!.id, actorName, String(req.params.id), String(task.title), req.workspaceId!, 'task_unassigned');
           }
         }
       }
@@ -272,6 +277,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
       [req.params.id, req.workspaceId]
     );
     if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const subtasks = await all('SELECT id FROM tasks WHERE parent_task_id = ?', [req.params.id]);
+    if (subtasks.length > 0) {
+      return res.status(400).json({ error: `Cannot delete a task that has ${subtasks.length} subtask${subtasks.length > 1 ? 's' : ''}. Delete or reassign the subtasks first.` });
+    }
 
     await run('DELETE FROM task_assignees WHERE task_id = ?', [req.params.id]);
     await run('UPDATE messages SET linked_task_id = NULL WHERE linked_task_id = ?', [req.params.id]);

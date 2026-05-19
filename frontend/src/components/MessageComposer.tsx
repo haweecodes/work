@@ -14,34 +14,99 @@ const IMPORTANCE_STATES = [
   { value: 'urgent',    label: '!!', symbol: '!!', color: 'var(--danger)' },
 ] as const;
 
-/* ─── Auto-resize helper ──────────────────────────────────────────────────── */
+/* ─── Content serialization ──────────────────────────────────────────────── */
 
-function autoResize(el: HTMLTextAreaElement) {
-  el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
+function serializeNode(node: Node): string {
+  let out = '';
+  node.childNodes.forEach(child => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.textContent ?? '';
+    } else if (child instanceof HTMLElement) {
+      if (child.dataset.mentionName) {
+        out += `@${child.dataset.mentionName}`;
+      } else if (child.tagName === 'BR') {
+        out += '\n';
+      } else if (child.tagName === 'DIV') {
+        // Chrome wraps each new line in a div when pressing Enter in contenteditable
+        out += '\n' + serializeNode(child);
+      } else {
+        out += serializeNode(child);
+      }
+    }
+  });
+  return out;
 }
 
-/* ─── @mention detection ─────────────────────────────────────────────────── */
+function serializeContent(div: HTMLDivElement): string {
+  return serializeNode(div);
+}
 
-function getMentionQuery(value: string, cursor: number): string | null {
-  const before = value.slice(0, cursor);
-  const atIdx = before.lastIndexOf('@');
+/* ─── Importance prefix strip ───────────────────────────────────────────── */
+
+function stripPrefixFromDiv(div: HTMLDivElement, prefixLen: number) {
+  const firstNode = div.firstChild;
+  if (!firstNode || firstNode.nodeType !== Node.TEXT_NODE) return;
+  const t = firstNode as Text;
+  t.textContent = (t.textContent ?? '').slice(prefixLen);
+  const sel = window.getSelection();
+  if (sel) {
+    const range = document.createRange();
+    range.setStart(t, 0);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
+/* ─── @mention detection (Selection API) ────────────────────────────────── */
+
+function getMentionQueryFromCaret(_div: HTMLDivElement): string | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  const { startContainer, startOffset } = range;
+  if (startContainer.nodeType !== Node.TEXT_NODE) return null;
+  const textBefore = (startContainer.textContent ?? '').slice(0, startOffset);
+  const atIdx = textBefore.lastIndexOf('@');
   if (atIdx === -1) return null;
-  // @ must be at the start or preceded by whitespace (not part of an email)
-  if (atIdx > 0 && !/\s/.test(before[atIdx - 1])) return null;
-  const query = before.slice(atIdx + 1);
-  // Trailing space means the mention was committed — close the dropdown
-  if (query.endsWith(' ')) return null;
-  return query;
+  if (atIdx > 0 && !/\s/.test(textBefore[atIdx - 1])) return null;
+  return textBefore.slice(atIdx + 1);
 }
 
-function replaceMention(value: string, cursor: number, name: string): { text: string; newCursor: number } {
-  const before = value.slice(0, cursor);
-  const after = value.slice(cursor);
-  const atIdx = before.lastIndexOf('@');
-  if (atIdx === -1) return { text: value, newCursor: cursor };
-  const replaced = `${before.slice(0, atIdx)}@${name} `;
-  return { text: replaced + after, newCursor: replaced.length };
+/* ─── Mention chip insertion ─────────────────────────────────────────────── */
+
+function insertMentionChip(member: Member) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
+  const textNode = range.startContainer as Text;
+  const textBefore = (textNode.textContent ?? '').slice(0, range.startOffset);
+  const atIdx = textBefore.lastIndexOf('@');
+  if (atIdx === -1) return;
+
+  const chip = document.createElement('span');
+  chip.className = 'mention-chip';
+  chip.dataset.mentionName = member.name;
+  chip.dataset.userId = member.id;
+  chip.setAttribute('contenteditable', 'false');
+  chip.textContent = `@${member.name}`;
+
+  const beforeText = document.createTextNode(textBefore.slice(0, atIdx));
+  // Space after the chip so the cursor has a text node to land in
+  const afterText = document.createTextNode(' ' + (textNode.textContent ?? '').slice(range.startOffset));
+
+  const parent = textNode.parentNode!;
+  parent.insertBefore(beforeText, textNode);
+  parent.insertBefore(chip, textNode);
+  parent.insertBefore(afterText, textNode);
+  parent.removeChild(textNode);
+
+  const newRange = document.createRange();
+  newRange.setStart(afterText, 1); // position caret after the space
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
 }
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -58,7 +123,7 @@ interface MessageComposerProps {
   onSubmit: (e: React.FormEvent) => void;
   placeholder?: string;
   variant?: Variant;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   className?: string;
   compact?: boolean;
   members?: Member[];
@@ -79,13 +144,32 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       onPriorityAlertMentionAdd, priorityAlertRecipients = [] },
     ref,
   ) {
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const divRef = useRef<HTMLDivElement>(null);
+    const lastSerializedRef = useRef('');
     const [mentionQuery, setMentionQuery] = useState<string | null>(null);
     const [mentionIndex, setMentionIndex] = useState(0);
 
     useImperativeHandle(ref, () => ({
-      focus: () => textareaRef.current?.focus(),
+      focus: () => divRef.current?.focus(),
     }));
+
+    // Ctrl+/ / Cmd+/ — global shortcut to focus this composer
+    useEffect(() => {
+      const handler = () => divRef.current?.focus();
+      window.addEventListener('fw:focus-composer', handler);
+      return () => window.removeEventListener('fw:focus-composer', handler);
+    }, []);
+
+    // When parent clears value (e.g. after submit), clear the div DOM
+    useEffect(() => {
+      if (value === '' && divRef.current) {
+        const current = serializeContent(divRef.current);
+        if (current !== '') {
+          divRef.current.innerHTML = '';
+          lastSerializedRef.current = '';
+        }
+      }
+    }, [value]);
 
     const filteredMembers = mentionQuery !== null
       ? members.filter(m => m.name.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 6)
@@ -94,22 +178,52 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
     const showMention = filteredMembers.length > 0;
 
     const selectMention = (member: Member, priority = 'normal') => {
-      const el = textareaRef.current;
-      if (!el) return;
-      const { text, newCursor } = replaceMention(value, el.selectionStart, member.name);
-      onChange(text);
+      if (!divRef.current) return;
+      insertMentionChip(member);
       setMentionQuery(null);
       if (priority !== 'normal') {
         onMentionPrioritySet?.(member.name, member.id, priority);
       }
-      requestAnimationFrame(() => {
-        el.focus();
-        el.setSelectionRange(newCursor, newCursor);
-        autoResize(el);
-      });
+      const serialized = serializeContent(divRef.current);
+      lastSerializedRef.current = serialized;
+      onChange(serialized);
+      requestAnimationFrame(() => divRef.current?.focus());
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const handleInput = () => {
+      if (!divRef.current) return;
+      const serialized = serializeContent(divRef.current);
+
+      // Prefix shorthand: `!! ` → urgent, `! ` → important (strip prefix from DOM)
+      if (onImportanceChange) {
+        if (serialized.startsWith('!! ')) {
+          onImportanceChange('urgent');
+          stripPrefixFromDiv(divRef.current, 3);
+          const stripped = serializeContent(divRef.current);
+          lastSerializedRef.current = stripped;
+          onChange(stripped);
+          setMentionQuery(null);
+          return;
+        }
+        if (serialized.startsWith('! ') && !serialized.startsWith('!! ')) {
+          onImportanceChange('important');
+          stripPrefixFromDiv(divRef.current, 2);
+          const stripped = serializeContent(divRef.current);
+          lastSerializedRef.current = stripped;
+          onChange(stripped);
+          setMentionQuery(null);
+          return;
+        }
+      }
+
+      lastSerializedRef.current = serialized;
+      onChange(serialized);
+      const query = getMentionQueryFromCaret(divRef.current);
+      setMentionQuery(query);
+      setMentionIndex(0);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (showMention) {
         if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, filteredMembers.length - 1)); return; }
         if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
@@ -119,20 +233,49 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         if (!showMention) onSubmit(e as unknown as React.FormEvent);
+        return;
+      }
+      if (e.key === 'Enter' && e.shiftKey) {
+        e.preventDefault();
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        document.execCommand('insertLineBreak');
+        return;
       }
       onKeyDown?.(e);
     };
 
-    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      onChange(val);
-      autoResize(e.target);
-      const query = getMentionQuery(val, e.target.selectionStart);
-      setMentionQuery(query);
-      setMentionIndex(0);
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const text = e.clipboardData.getData('text/plain');
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('insertText', false, text);
     };
 
     useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
+
+    // Mirrors the same accent/bg used by MessageBubble for received messages
+    const importanceAccent =
+      importance === 'urgent'    ? 'var(--danger)' :
+      importance === 'important' ? '#C47B2A'       : null;
+    const importanceBg =
+      importance === 'urgent'    ? 'rgba(168,51,42,0.07)'   :
+      importance === 'important' ? 'rgba(196,123,42,0.06)'  : undefined;
+
+    const baseEditableStyle: React.CSSProperties = {
+      fontSize: 15,
+      color: 'var(--ink)',
+      letterSpacing: '-0.005em',
+      background: 'transparent',
+      outline: 'none',
+      width: '100%',
+      minHeight: 36,
+      maxHeight: 128,
+      overflowY: 'auto',
+      lineHeight: 1.5,
+      fontFamily: 'inherit',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+    };
 
     const mentionDropdown = showMention && (
       <div
@@ -183,40 +326,41 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       </div>
     );
 
-    const textareaStyle = {
-      fontSize: 15,
-      color: 'var(--ink)',
-      letterSpacing: '-0.005em',
-      background: 'transparent',
-      border: 'none',
-      borderBottom: '1px solid var(--rule)',
-      outline: 'none',
-      resize: 'none' as const,
-      width: '100%',
-      minHeight: 36,
-      maxHeight: 128,
-      padding: '6px 0 10px',
-      lineHeight: 1.5,
-      fontFamily: 'inherit',
-    };
-
     /* ── inline variant (ThreadPanel) ──────────────────────────────────── */
     if (variant === 'inline') {
       return (
-        <form onSubmit={onSubmit} className={`relative ${className}`}>
+        <form onSubmit={onSubmit} className={`relative ${className}`}
+          style={{
+            borderLeft: `3px solid ${importanceAccent ?? 'transparent'}`,
+            paddingLeft: importanceAccent ? 8 : 0,
+            background: importanceBg,
+            transition: 'border-left-color 0.15s, background 0.15s, padding 0.15s',
+          }}>
           {mentionDropdown}
           <div className="flex items-baseline gap-3" style={{ borderBottom: '1px solid var(--rule)' }}
             onFocus={e => (e.currentTarget.style.borderBottomColor = 'var(--ink)')}
             onBlur={e => (e.currentTarget.style.borderBottomColor = 'var(--rule)')}>
-            <textarea
-              ref={textareaRef}
-              style={{ ...textareaStyle, flex: 1, border: 'none', borderBottom: 'none', padding: '6px 0' }}
-              placeholder={placeholder}
-              value={value}
-              rows={1}
-              onChange={handleChange}
+            <div
+              ref={divRef}
+              contentEditable
+              role="textbox"
+              spellCheck
+              aria-multiline="true"
+              aria-placeholder={placeholder}
+              data-placeholder={placeholder}
+              className="composer-input"
+              onInput={handleInput}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              style={{ ...baseEditableStyle, flex: 1, padding: '6px 0' }}
             />
+            {importanceAccent && (
+              <span style={{
+                fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
+                color: 'var(--paper)', background: importanceAccent,
+                padding: '2px 7px', flexShrink: 0,
+              }}>{importance}</span>
+            )}
             <button
               type="submit"
               disabled={!value.trim()}
@@ -241,20 +385,30 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
     };
 
     return (
-      <form onSubmit={onSubmit} className={`relative ${className}`}>
+      <form onSubmit={onSubmit} className={`relative ${className}`}
+        style={{
+          borderLeft: `3px solid ${importanceAccent ?? 'transparent'}`,
+          paddingLeft: importanceAccent ? 10 : 0,
+          background: importanceBg,
+          transition: 'border-left-color 0.15s, background 0.15s, padding 0.15s',
+        }}>
         {mentionDropdown}
         <div className="flex items-baseline gap-4"
           style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 10 }}>
-          <textarea
-            ref={textareaRef}
-            style={{ ...textareaStyle, flex: 1, border: 'none', borderBottom: 'none', padding: '4px 0' }}
-            placeholder={placeholder}
-            value={value}
-            rows={1}
-            onChange={handleChange}
+          <div
+            ref={divRef}
+            contentEditable
+            role="textbox"
+            spellCheck
+            aria-multiline="true"
+            aria-placeholder={placeholder}
+            data-placeholder={placeholder}
+            className="composer-input"
+            onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            style={{ ...baseEditableStyle, flex: 1, padding: '4px 0' }}
           />
-          {/* Importance toggle */}
           {onImportanceChange && (
             <button
               type="button"
@@ -283,10 +437,16 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
         <p style={{ fontSize: 11, color: 'var(--faint)', marginTop: 8, letterSpacing: '0.02em' }}>
           <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>↵</kbd>
           {' '}to send · <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>Shift↵</kbd>
-          {' '}for newline
-          {importance !== 'normal' && (
-            <span style={{ marginLeft: 10, color: importanceState.color, fontWeight: 500 }}>
-              · marked as {importance}
+          {' '}for newline · <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>! </kbd>
+          {' '}/{' '}<kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>!! </kbd>
+          {' '}for priority
+          {importanceAccent && (
+            <span style={{ marginLeft: 8 }}>·{' '}
+              <span style={{
+                fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
+                color: 'var(--paper)', background: importanceAccent,
+                padding: '2px 7px',
+              }}>{importance}</span>
             </span>
           )}
           {priorityAlertRecipients.length > 0 && (

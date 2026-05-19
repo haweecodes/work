@@ -101,6 +101,9 @@ router.post('/:threadId', requireDmParticipant('threadId'), async (req: Request,
   try {
     const { content, linked_task_id, parent_message_id, importance } = req.body;
     if (!content) return res.status(400).json({ error: 'content required' });
+    if (typeof content !== 'string' || content.length > 5000) {
+      return res.status(400).json({ error: 'Message content must be 5000 characters or fewer' });
+    }
 
     if (parent_message_id) {
       const parentMsg = await get<{ parent_message_id: string | null }>(
@@ -156,8 +159,8 @@ router.post('/:threadId', requireDmParticipant('threadId'), async (req: Request,
         if (p.user_id !== req.user?.id) {
           const notifId = uuidv4();
           await run(
-            'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message) VALUES (?, ?, ?, ?, ?, ?)',
-            [notifId, p.user_id, 'dm', id, 'message', `${req.user?.name || 'A user'}: "${content.slice(0, 80)}"`]
+            'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [notifId, p.user_id, 'dm', id, 'message', `${req.user?.name || 'A user'}: "${content.slice(0, 80)}"`, req.workspaceId]
           );
           if (io) io.to(`user:${p.user_id}`).emit('notification', { id: notifId, type: 'dm' });
         }

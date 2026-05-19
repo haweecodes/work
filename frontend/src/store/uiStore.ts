@@ -1,23 +1,17 @@
 import { create } from 'zustand';
-import type { Message, PipelineDeal } from '../types';
+import type { Message } from '../types';
 
 export type SidebarView =
   | { type: 'notifications' }
   | { type: 'board-updates'; boardId: string; canRequest: boolean }
   | { type: 'thread'; message: Message; channelId?: string; dmThreadId?: string }
   | { type: 'tasks' }
-  | { type: 'pipeline' }
   | null;
 
 interface UIState {
   activeSidebar: SidebarView;
   openSidebar: (view: SidebarView) => void;
   closeSidebar: () => void;
-
-  // Pipeline mock state (owned here so PipelinePanel can live in RightSidebarPanel)
-  pipelineDeals: PipelineDeal[];
-  setPipelineDeals: (deals: PipelineDeal[]) => void;
-  addPipelineDeal: (deal: PipelineDeal) => void;
 
   // Global ShareModal trigger
   shareMessage: Message | null;
@@ -45,10 +39,6 @@ const useUIStore = create<UIState>((set) => ({
   activeSidebar: null,
   openSidebar: (view) => set({ activeSidebar: view }),
   closeSidebar: () => set({ activeSidebar: null }),
-
-  pipelineDeals: [],
-  setPipelineDeals: (deals) => set({ pipelineDeals: deals }),
-  addPipelineDeal: (deal) => set((s) => ({ pipelineDeals: [deal, ...s.pipelineDeals] })),
 
   shareMessage: null,
   openShareModal: (msg) => set({ shareMessage: msg }),

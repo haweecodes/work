@@ -50,9 +50,9 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Clear board / task drawer
     useBoardStore.setState({ columns: [], boards: [], selectedTask: null });
 
-    // Clear open thread, unread counts, and any open modals
+    // Clear open panels, unread counts, and any open modals
     useUIStore.setState({
-      activeThreadId: null,
+      activeSidebar: null,
       channelUnread: {},
       dmUnread: {},
       threadUnread: {},

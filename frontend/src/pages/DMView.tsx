@@ -115,7 +115,6 @@ export default function DMView() {
           <MessageList
             messages={messages}
             typingUsers={typingUsers}
-            onCreateTask={() => {}}
             onTaskLinked={handleTaskLinked}
             onMessageUpdated={handleMsgUpdated}
             onMessageDeleted={handleMsgDeleted}

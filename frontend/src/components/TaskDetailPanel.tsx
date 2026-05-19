@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { LayoutDashboard, Flag, Layers, Calendar, Users, AlignLeft, ListTree, GitBranch, MessageSquare } from 'lucide-react';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -371,7 +372,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         {/* Priority */}
         <div>
-          <label className="label">Priority</label>
+          <label className="label flex items-center gap-1.5"><Flag size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Priority</label>
           <div className="flex gap-5">
             {Object.entries(PRIORITY_STYLES).map(([key]) => (
               <button key={key} type="button"
@@ -393,7 +394,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         {/* Board */}
         <div>
-          <label className="label">Board</label>
+          <label className="label flex items-center gap-1.5"><LayoutDashboard size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Board</label>
           <select className="input" value={form.board_id}
             disabled={!!selectedTask.parent_task_id}
             onChange={e => setForm({ ...form, board_id: e.target.value, column_id: '' })}>
@@ -413,7 +414,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         {/* Status */}
         <div>
-          <label className="label">Status</label>
+          <label className="label flex items-center gap-1.5"><Layers size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Status</label>
           <select className="input" value={form.column_id}
             onChange={e => setForm({ ...form, column_id: e.target.value })}
             disabled={loadingColumns}>
@@ -439,23 +440,37 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         <div className="grid grid-cols-2 gap-6">
           <div>
-            <label className="label">Due date</label>
+            <label className="label flex items-center gap-1.5"><Calendar size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Due date</label>
             <input className="input" type="date" value={form.due_date}
               onChange={e => setForm({ ...form, due_date: e.target.value })} />
           </div>
           <div>
-            <label className="label">Parent Task</label>
+            <label className="label flex items-center gap-1.5"><GitBranch size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Parent Task</label>
             <select className="input" value={form.parent_task_id} onChange={e => setForm({ ...form, parent_task_id: e.target.value })}>
               <option value="">None</option>
               {allTasks.filter(t => t.id !== selectedTask.id).map(t => (
                 <option key={t.id} value={t.id}>{t.title}</option>
               ))}
             </select>
+            {form.parent_task_id && (() => {
+              const parent = allTasks.find(t => t.id === form.parent_task_id);
+              return parent ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTask(parent)}
+                  style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'block' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'underline'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.textDecoration = 'none'; }}
+                >
+                  → {parent.title}
+                </button>
+              ) : null;
+            })()}
           </div>
         </div>
 
         <div>
-          <label className="label">Assignees</label>
+          <label className="label flex items-center gap-1.5"><Users size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Assignees</label>
           <div className="flex flex-wrap gap-2">
             {members.map(m => (
               <button key={m.id} type="button"
@@ -478,7 +493,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
         </div>
 
         <div>
-          <label className="label">Description</label>
+          <label className="label flex items-center gap-1.5"><AlignLeft size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Description</label>
           <textarea className="input resize-none leading-relaxed" rows={5}
             placeholder="Add a description..." value={form.description}
             onChange={e => setForm({ ...form, description: e.target.value })} />
@@ -486,7 +501,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         <div>
           <div className="flex items-baseline justify-between mb-1">
-            <label className="label">Subtasks</label>
+            <label className="label flex items-center gap-1.5"><ListTree size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Subtasks</label>
             {subtasks.length > 0 && (
               <span style={{
                 fontSize: 11,
@@ -531,7 +546,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         {selectedTask.linked_message_id && (
           <div>
-            <label className="label">Linked message</label>
+            <label className="label flex items-center gap-1.5"><MessageSquare size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Linked message</label>
             <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-600">
               <p className="text-xs text-gray-400 mb-2">Created from a channel message</p>
               <div className="flex items-center gap-3">
@@ -575,9 +590,16 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
           style={saveStatus === 'saved' ? { color: 'var(--ink)', textDecorationColor: 'var(--ink)' } : saveStatus === 'error' ? { color: 'var(--danger)' } : {}}>
           {saving ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? 'Save failed — retry' : 'Save changes →'}
         </button>
-        <button onClick={handleDelete} className="btn-danger" disabled={deleting}>
+        <button onClick={handleDelete} className="btn-danger"
+          disabled={deleting || subtasks.length > 0}
+          title={subtasks.length > 0 ? `Cannot delete — has ${subtasks.length} subtask${subtasks.length > 1 ? 's' : ''}` : undefined}>
           {deleting ? '…' : 'Delete'}
         </button>
+        {subtasks.length > 0 && (
+          <span style={{ fontSize: 11, color: 'var(--faint)' }}>
+            Delete subtasks first
+          </span>
+        )}
       </div>
     </div>
   );

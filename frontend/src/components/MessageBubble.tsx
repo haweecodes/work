@@ -165,14 +165,12 @@ function InlineTaskForm({
   defaultDueDate,
   onClose,
   onSuccess,
-  onOpenFull,
 }: {
   msg: Message;
   prefill: string;
   defaultDueDate?: string | null;
   onClose: () => void;
   onSuccess: (task: Task) => void;
-  onOpenFull: (data: InlineTaskPrefill) => void;
 }) {
   const { boards, columns: storeColumns } = useBoardStore();
   const [title, setTitle] = useState(prefill.slice(0, 120));
@@ -208,7 +206,7 @@ function InlineTaskForm({
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
-    if (!selectedBoardId) { onOpenFull({ title, priority, dueDate }); return; }
+    if (!selectedBoardId) { setError('No board configured.'); return; }
     if (!selectedColId) { setError('Select a column first.'); return; }
     setSaving(true);
     setError('');
@@ -297,10 +295,6 @@ function InlineTaskForm({
           {saving ? 'Saving…' : 'Add to board →'}
         </button>
         <button onClick={onClose} className="btn-ghost">Cancel</button>
-        <button onClick={() => onOpenFull({ title, priority, dueDate })} className="btn-ghost"
-          style={{ marginLeft: 'auto' }}>
-          More options →
-        </button>
       </div>
     </div>
   );
@@ -309,7 +303,7 @@ function InlineTaskForm({
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface MessageBubbleProps {
   msg: Message;
-  onCreateTask: (msg: Message, prefill?: InlineTaskPrefill) => void;
+  onCreateTask?: (msg: Message, prefill?: InlineTaskPrefill) => void;
   onTaskLinked?: (msgId: string, task: Task) => void;
   onMessageUpdated?: (msgId: string, content: string) => void;
   onMessageDeleted?: (msgId: string) => void;
@@ -324,6 +318,10 @@ interface MessageBubbleProps {
   /** True when the next message starts a new group — shows the row separator */
   isGroupEnd?: boolean;
 }
+
+const MENTION_PRIORITY_COLORS: Record<string, string> = {
+  low: 'var(--faint)', normal: 'var(--ink)', high: '#C47B2A', urgent: 'var(--danger)',
+};
 
 function MessageBubble({
   msg,
@@ -340,11 +338,16 @@ function MessageBubble({
   isContinuation = false,
   isGroupEnd = true,
 }: MessageBubbleProps) {
-  const user = useAuthStore(s => s.user);
-  const { threadUnread } = useUIStore();
-  const navigate = useNavigate();
-  const { boards, columns, fetchColumns, selectedTask, setSelectedTask, updateTaskInColumn } = useBoardStore();
-  const { members } = useWorkspaceStore();
+  const user             = useAuthStore(s => s.user);
+  const threadUnread     = useUIStore(s => s.threadUnread);
+  const navigate         = useNavigate();
+  const boards           = useBoardStore(s => s.boards);
+  const columns          = useBoardStore(s => s.columns);
+  const fetchColumns     = useBoardStore(s => s.fetchColumns);
+  const selectedTask     = useBoardStore(s => s.selectedTask);
+  const setSelectedTask  = useBoardStore(s => s.setSelectedTask);
+  const updateTaskInColumn = useBoardStore(s => s.updateTaskInColumn);
+  const members          = useWorkspaceStore(s => s.members);
 
   const mentionSplitRe = useMemo(() => {
     const sorted = [...members]
@@ -463,12 +466,8 @@ function MessageBubble({
     onTaskLinked?.(msg.id, task);
   };
 
-  const MENTION_PRIORITY_COLORS: Record<string, string> = {
-    low: 'var(--faint)', normal: 'var(--ink)', high: '#C47B2A', urgent: 'var(--danger)',
-  };
-
-  const renderContent = (content: string) => {
-    const parts = content.split(mentionSplitRe);
+  const renderedContent = useMemo(() => {
+    const parts = msg.content.split(mentionSplitRe);
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return <strong key={i} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
@@ -481,7 +480,7 @@ function MessageBubble({
       }
       return part;
     });
-  };
+  }, [msg.content, mentionSplitRe, msg.mention_priorities]);
 
   const handleGoToSource = () => {
     const sm = msg.shared_message;
@@ -691,7 +690,7 @@ function MessageBubble({
             </div>
           ) : (msg.content || !msg.shared_message) && (
             <p style={{ fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: '64ch', letterSpacing: '-0.005em', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {renderContent(msg.content)}
+              {renderedContent}
               {msg.edited_at && (
                 <span
                   className="ml-1.5 select-none"
@@ -721,7 +720,6 @@ function MessageBubble({
               defaultDueDate={extractDueDate(msg.content)}
               onClose={() => setShowInlineForm(false)}
               onSuccess={handleInlineSuccess}
-              onOpenFull={(data) => { setShowInlineForm(false); onCreateTask(msg, data); }}
             />
           )}
 
@@ -822,10 +820,14 @@ function MessageBubble({
 }
 
 export default memo(MessageBubble, (prev, next) =>
-  prev.msg === next.msg &&
+  prev.msg.id        === next.msg.id        &&
+  prev.msg.content   === next.msg.content   &&
+  prev.msg.edited_at === next.msg.edited_at &&
+  prev.msg.reactions === next.msg.reactions &&
+  prev.msg.linked_task === next.msg.linked_task &&
   prev.isContinuation === next.isContinuation &&
-  prev.isGroupEnd === next.isGroupEnd &&
-  prev.depth === next.depth &&
-  prev.inThread === next.inThread &&
-  prev.replyTo === next.replyTo
+  prev.isGroupEnd    === next.isGroupEnd    &&
+  prev.depth         === next.depth         &&
+  prev.inThread      === next.inThread      &&
+  prev.replyTo       === next.replyTo
 );

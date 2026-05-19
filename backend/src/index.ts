@@ -1,4 +1,10 @@
 import 'dotenv/config';
+
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+  process.exit(1);
+}
+
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';

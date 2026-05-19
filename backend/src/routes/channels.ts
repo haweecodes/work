@@ -28,8 +28,11 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const { name, is_private } = req.body;
     const workspace_id = req.workspaceId!;
-    if (!name) {
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'name is required' });
+    }
+    if (name.length > 80) {
+      return res.status(400).json({ error: 'Channel name must be 80 characters or fewer' });
     }
 
     const id = uuidv4();
@@ -124,6 +127,9 @@ router.post('/messages', async (req: Request, res: Response) => {
     if (!channel_id || !content) {
       return res.status(400).json({ error: 'channel_id and content required' });
     }
+    if (typeof content !== 'string' || content.length > 5000) {
+      return res.status(400).json({ error: 'Message content must be 5000 characters or fewer' });
+    }
 
     // Guard: sender must be a member of the target channel
     const isMember = await get(
@@ -182,8 +188,8 @@ router.post('/messages', async (req: Request, res: Response) => {
         const mentionPriority = (mention_priorities as Array<{name: string; userId: string; priority: string}> | undefined)
           ?.find(mp => mp.name.toLowerCase() === member.name.toLowerCase())?.priority ?? 'normal';
         await run(
-          'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message, priority) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [notifId, member.id, 'mention', channel_id, 'channel', notifMsg, mentionPriority]
+          'INSERT INTO notifications (id, user_id, type, reference_id, reference_type, message, priority, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [notifId, member.id, 'mention', channel_id, 'channel', notifMsg, mentionPriority, req.workspaceId]
         );
         if (io) io.to(`user:${member.id}`).emit('notification', { id: notifId, type: 'mention', message: notifMsg, reference_id: channel_id, reference_type: 'channel', priority: mentionPriority });
       }

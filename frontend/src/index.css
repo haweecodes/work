@@ -122,6 +122,27 @@
     vertical-align: middle;
     transform: translateY(-2px);
   }
+
+  /* ── Contenteditable message composer ── */
+  .composer-input:empty::before {
+    content: attr(data-placeholder);
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  /* ── @mention chip (inserted on mention select) ── */
+  .mention-chip {
+    display: inline-block;
+    background: rgba(99, 102, 241, 0.12);
+    color: #6366f1;
+    border-radius: 4px;
+    padding: 0 4px;
+    font-weight: 600;
+    font-size: inherit;
+    line-height: inherit;
+    user-select: all;
+    cursor: default;
+  }
 }
 
 @keyframes fadeInScale {
