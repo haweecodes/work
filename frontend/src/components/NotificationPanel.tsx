@@ -83,7 +83,7 @@ function NotificationList({ notifications, onNotifClick, markRead }: {
       // Mark locally as responded so buttons disappear immediately
       setRespondedIds(prev => new Set(prev).add(n.id));
       markRead(n.id);
-      setDelayedId(null);
+      setReasonNotifId(null);
       setDelayReason('');
     } catch (err: any) {
       const msg = err?.response?.data?.error ?? 'Failed to send — try again.';
@@ -107,7 +107,7 @@ function NotificationList({ notifications, onNotifClick, markRead }: {
         const NotifIcon = TYPE_ICON[n.type];
         const header = (
           <div className="flex items-baseline justify-between gap-2 mb-1">
-            {(label || NotifIcon) && (
+            {(label || !!NotifIcon) && (
               <span className="flex items-center gap-1" style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: labelColor }}>
                 {NotifIcon && <NotifIcon size={11} style={{ color: labelColor, flexShrink: 0 }} />}
                 {label}
@@ -188,8 +188,7 @@ function NotificationList({ notifications, onNotifClick, markRead }: {
                           }}>
                           {isBusy ? '…' : s.label}
                         </button>
-                      );
-                    })}
+                    ))}
                   </div>
                 )}
               </div>
