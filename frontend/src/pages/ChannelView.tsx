@@ -104,10 +104,18 @@ export default function ChannelView() {
     clearThreadUnread(msg.id);
   }, [openSidebar, channelId, clearThreadUnread]);
 
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+
   const handleArchive = useCallback(async () => {
-    if (!channelId || !confirm('Are you sure you want to archive this channel?')) return;
-    try { await client.patch(`/api/channels/${channelId}/archive`); }
-    catch { alert('Failed to archive channel'); }
+    if (!channelId) return;
+    setArchiving(true);
+    try {
+      await client.patch(`/api/channels/${channelId}/archive`);
+      setShowArchiveConfirm(false);
+    } finally {
+      setArchiving(false);
+    }
   }, [channelId]);
 
   const tasksActive = activeSidebar?.type === 'tasks';
@@ -135,27 +143,43 @@ export default function ChannelView() {
             </p>
           </div>
           <div className="flex items-baseline gap-6 ml-auto">
-            <button
-              onClick={() => tasksActive ? closeSidebar() : openSidebar({ type: 'tasks' })}
-              style={{
-                fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
-                color: tasksActive ? 'var(--ink)' : 'var(--muted)',
-                borderBottom: `1px solid ${tasksActive ? 'var(--ink)' : 'transparent'}`,
-                paddingBottom: 4, background: 'none',
-              }}
-              onMouseEnter={e => { if (!tasksActive) e.currentTarget.style.color = 'var(--ink)'; }}
-              onMouseLeave={e => { if (!tasksActive) e.currentTarget.style.color = 'var(--muted)'; }}
-            >
-              Tasks{myTaskCount > 0 ? ` · ${myTaskCount}` : ''}
-            </button>
-            {canArchive && (
-              <button onClick={handleArchive}
-                style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}
-                onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-                onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-              >
-                Archive
-              </button>
+            {showArchiveConfirm ? (
+              <div className="flex items-baseline gap-3 animate-fade-in">
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Archive channel?</span>
+                <button onClick={handleArchive} disabled={archiving}
+                  style={{ fontSize: 12, color: 'var(--danger)', letterSpacing: '0.06em', textTransform: 'uppercase', background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {archiving ? '…' : 'Confirm'}
+                </button>
+                <button onClick={() => setShowArchiveConfirm(false)} disabled={archiving}
+                  style={{ fontSize: 12, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => tasksActive ? closeSidebar() : openSidebar({ type: 'tasks' })}
+                  style={{
+                    fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+                    color: tasksActive ? 'var(--ink)' : 'var(--muted)',
+                    borderBottom: `1px solid ${tasksActive ? 'var(--ink)' : 'transparent'}`,
+                    paddingBottom: 4, background: 'none',
+                  }}
+                  onMouseEnter={e => { if (!tasksActive) e.currentTarget.style.color = 'var(--ink)'; }}
+                  onMouseLeave={e => { if (!tasksActive) e.currentTarget.style.color = 'var(--muted)'; }}
+                >
+                  Tasks{myTaskCount > 0 ? ` · ${myTaskCount}` : ''}
+                </button>
+                {canArchive && (
+                  <button onClick={() => setShowArchiveConfirm(true)}
+                    style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--danger)' }}
+                    onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                    onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                  >
+                    Archive
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -164,3 +164,51 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(1.4); }
 }
+
+/* ── Tiptap editor — headless, inherits all design tokens ───────────────── */
+.tiptap-wrapper .ProseMirror {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  font-family: inherit;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 36px;
+}
+
+.tiptap-wrapper .ProseMirror p { margin: 0; }
+
+.tiptap-wrapper .ProseMirror strong { font-weight: 600; }
+
+.tiptap-wrapper .ProseMirror em { font-style: italic; }
+
+.tiptap-wrapper .ProseMirror code {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 0.88em;
+  background: var(--paper-2);
+  padding: 1px 4px;
+}
+
+.tiptap-wrapper .ProseMirror a {
+  color: #6366f1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Placeholder */
+.tiptap-wrapper .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--faint);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* Mention chips in the editor */
+.tiptap-wrapper .mention-chip {
+  font-weight: 600;
+  cursor: default;
+  user-select: none;
+}

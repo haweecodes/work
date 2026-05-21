@@ -1,119 +1,57 @@
-import { useRef, forwardRef, useImperativeHandle, useState, useEffect } from 'react';
+import { useRef, forwardRef, useImperativeHandle, useState, useEffect, useCallback } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import Mention from '@tiptap/extension-mention';
+import Placeholder from '@tiptap/extension-placeholder';
+import { Bold, Italic, Link2, Smile } from 'lucide-react';
+import EmojiPicker from './EmojiPicker';
 import type { Member } from '../types';
 
-const MENTION_PRIORITIES = [
-  { value: 'low',    label: 'Low',    color: 'var(--faint)' },
-  { value: 'normal', label: 'Normal', color: 'var(--ink-2)' },
-  { value: 'high',   label: 'High',   color: '#C47B2A' },
-  { value: 'urgent', label: 'Urgent', color: 'var(--danger)' },
-] as const;
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const MENTION_PRIORITY_COLORS: Record<string, string> = {
+  low: 'var(--faint)', normal: 'var(--ink)', high: '#C47B2A', urgent: 'var(--danger)',
+};
 
 const IMPORTANCE_STATES = [
-  { value: 'normal',    label: '',   symbol: '·',  color: 'var(--faint)' },
-  { value: 'important', label: '!',  symbol: '!',  color: '#C47B2A' },
-  { value: 'urgent',    label: '!!', symbol: '!!', color: 'var(--danger)' },
+  { value: 'normal',    label: '',   color: 'var(--faint)' },
+  { value: 'important', label: '!',  color: '#C47B2A' },
+  { value: 'urgent',    label: '!!', color: 'var(--danger)' },
 ] as const;
 
-/* ─── Content serialization ──────────────────────────────────────────────── */
+// ── Serialization: Tiptap JSON → plain text with markdown markers ─────────────
 
-function serializeNode(node: Node): string {
-  let out = '';
-  node.childNodes.forEach(child => {
-    if (child.nodeType === Node.TEXT_NODE) {
-      out += child.textContent ?? '';
-    } else if (child instanceof HTMLElement) {
-      if (child.dataset.mentionName) {
-        out += `@${child.dataset.mentionName}`;
-      } else if (child.tagName === 'BR') {
-        out += '\n';
-      } else if (child.tagName === 'DIV') {
-        // Chrome wraps each new line in a div when pressing Enter in contenteditable
-        out += '\n' + serializeNode(child);
-      } else {
-        out += serializeNode(child);
-      }
-    }
-  });
-  return out;
-}
-
-function serializeContent(div: HTMLDivElement): string {
-  return serializeNode(div);
-}
-
-/* ─── Importance prefix strip ───────────────────────────────────────────── */
-
-function stripPrefixFromDiv(div: HTMLDivElement, prefixLen: number) {
-  const firstNode = div.firstChild;
-  if (!firstNode || firstNode.nodeType !== Node.TEXT_NODE) return;
-  const t = firstNode as Text;
-  t.textContent = (t.textContent ?? '').slice(prefixLen);
-  const sel = window.getSelection();
-  if (sel) {
-    const range = document.createRange();
-    range.setStart(t, 0);
-    range.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(range);
+function serializeNode(node: any): string {
+  if (node.type === 'text') {
+    let text: string = node.text ?? '';
+    const marks: any[] = node.marks ?? [];
+    const isBold   = marks.some(m => m.type === 'bold');
+    const isItalic = marks.some(m => m.type === 'italic');
+    const isCode   = marks.some(m => m.type === 'code');
+    const link     = marks.find(m => m.type === 'link');
+    if (isCode)   text = `\`${text}\``;
+    if (isBold)   text = `**${text}**`;
+    if (isItalic) text = `*${text}*`;
+    if (link)     text = `[${text}](${link.attrs.href})`;
+    return text;
   }
+  if (node.type === 'mention') return `@${node.attrs.label ?? node.attrs.id ?? ''}`;
+  if (node.type === 'hardBreak') return '\n';
+  if (node.type === 'paragraph') {
+    return (node.content ?? []).map(serializeNode).join('');
+  }
+  if (node.type === 'doc') {
+    return (node.content ?? []).map((n: any, i: number) =>
+      i === 0 ? serializeNode(n) : '\n' + serializeNode(n)
+    ).join('');
+  }
+  return (node.content ?? []).map(serializeNode).join('');
 }
 
-/* ─── @mention detection (Selection API) ────────────────────────────────── */
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-function getMentionQueryFromCaret(_div: HTMLDivElement): string | null {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0);
-  const { startContainer, startOffset } = range;
-  if (startContainer.nodeType !== Node.TEXT_NODE) return null;
-  const textBefore = (startContainer.textContent ?? '').slice(0, startOffset);
-  const atIdx = textBefore.lastIndexOf('@');
-  if (atIdx === -1) return null;
-  if (atIdx > 0 && !/\s/.test(textBefore[atIdx - 1])) return null;
-  return textBefore.slice(atIdx + 1);
-}
-
-/* ─── Mention chip insertion ─────────────────────────────────────────────── */
-
-function insertMentionChip(member: Member) {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-  if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
-  const textNode = range.startContainer as Text;
-  const textBefore = (textNode.textContent ?? '').slice(0, range.startOffset);
-  const atIdx = textBefore.lastIndexOf('@');
-  if (atIdx === -1) return;
-
-  const chip = document.createElement('span');
-  chip.className = 'mention-chip';
-  chip.dataset.mentionName = member.name;
-  chip.dataset.userId = member.id;
-  chip.setAttribute('contenteditable', 'false');
-  chip.textContent = `@${member.name}`;
-
-  const beforeText = document.createTextNode(textBefore.slice(0, atIdx));
-  // Space after the chip so the cursor has a text node to land in
-  const afterText = document.createTextNode(' ' + (textNode.textContent ?? '').slice(range.startOffset));
-
-  const parent = textNode.parentNode!;
-  parent.insertBefore(beforeText, textNode);
-  parent.insertBefore(chip, textNode);
-  parent.insertBefore(afterText, textNode);
-  parent.removeChild(textNode);
-
-  const newRange = document.createRange();
-  newRange.setStart(afterText, 1); // position caret after the space
-  newRange.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(newRange);
-}
-
-/* ─── Types ──────────────────────────────────────────────────────────────── */
-
-export interface MessageComposerHandle {
-  focus: () => void;
-}
+export interface MessageComposerHandle { focus: () => void; }
 
 type Variant = 'row' | 'inline';
 
@@ -123,7 +61,7 @@ interface MessageComposerProps {
   onSubmit: (e: React.FormEvent) => void;
   placeholder?: string;
   variant?: Variant;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
   className?: string;
   compact?: boolean;
   members?: Member[];
@@ -134,155 +72,230 @@ interface MessageComposerProps {
   priorityAlertRecipients?: Array<{ name: string }>;
 }
 
-/* ─── Component ──────────────────────────────────────────────────────────── */
+// ── Component ─────────────────────────────────────────────────────────────────
 
 const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
   function MessageComposer(
-    { value, onChange, onSubmit, placeholder = 'Write a message…', variant = 'row',
-      className = '', compact = false, onKeyDown, members = [],
-      importance = 'normal', onImportanceChange, onMentionPrioritySet,
-      onPriorityAlertMentionAdd, priorityAlertRecipients = [] },
+    {
+      value, onChange, onSubmit,
+      placeholder = 'Write a message…',
+      variant = 'row',
+      className = '',
+      members = [],
+      importance = 'normal',
+      onImportanceChange,
+      onMentionPrioritySet,
+      onPriorityAlertMentionAdd,
+      priorityAlertRecipients = [],
+    },
     ref,
   ) {
-    const divRef = useRef<HTMLDivElement>(null);
-    const lastSerializedRef = useRef('');
-    const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+    // ── Mention suggestion state ─────────────────────────────────────────────
+    const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+    const [mentionItems, setMentionItems] = useState<Member[]>([]);
     const [mentionIndex, setMentionIndex] = useState(0);
+    const mentionCommandRef = useRef<((item: { id: string; label: string }) => void) | null>(null);
+    const mentionIndexRef   = useRef(0);
+    const mentionItemsRef   = useRef<Member[]>([]);
 
+    // Keep refs in sync
+    useEffect(() => { mentionIndexRef.current = mentionIndex; }, [mentionIndex]);
+    useEffect(() => { mentionItemsRef.current = mentionItems; }, [mentionItems]);
+
+    // ── Toolbar state ────────────────────────────────────────────────────────
+    const [showLinkInput, setShowLinkInput] = useState(false);
+    const [linkInput, setLinkInput]         = useState('');
+    const [showEmoji, setShowEmoji]         = useState(false);
+    const emojiButtonRef    = useRef<HTMLButtonElement>(null);
+    const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
+
+    // ── Tiptap editor ────────────────────────────────────────────────────────
+    const editor = useEditor({
+      extensions: [
+        StarterKit.configure({
+          heading: false, blockquote: false,
+          bulletList: false, orderedList: false, codeBlock: false,
+          // Keep: bold, italic, code (inline), hardBreak, history, paragraph
+        }),
+        Link.configure({ openOnClick: false, autolink: true }),
+        Placeholder.configure({ placeholder }),
+        Mention.configure({
+          HTMLAttributes: { class: 'mention-chip' },
+          renderHTML({ node }) {
+            const priority = (node.attrs as any).priority ?? 'normal';
+            return ['span', {
+              class: 'mention-chip',
+              'data-mention-name': node.attrs.label,
+              'data-user-id': node.attrs.id,
+              style: `color:${MENTION_PRIORITY_COLORS[priority] ?? 'var(--ink)'}`,
+            }, `@${node.attrs.label ?? ''}`];
+          },
+          suggestion: {
+            items: ({ query }) =>
+              members.filter(m => m.name.toLowerCase().startsWith(query.toLowerCase())).slice(0, 6),
+            render: () => ({
+              onStart(props) {
+                mentionCommandRef.current = props.command;
+                setMentionItems(props.items as Member[]);
+                setMentionIndex(0);
+                setShowMentionDropdown(true);
+              },
+              onUpdate(props) {
+                mentionCommandRef.current = props.command;
+                setMentionItems(props.items as Member[]);
+                setMentionIndex(0);
+              },
+              onExit() {
+                mentionCommandRef.current = null;
+                setShowMentionDropdown(false);
+              },
+              onKeyDown({ event }: { event: KeyboardEvent }) {
+                const items = mentionItemsRef.current;
+                const idx   = mentionIndexRef.current;
+                if (event.key === 'ArrowDown') {
+                  setMentionIndex(i => Math.min(i + 1, items.length - 1));
+                  return true;
+                }
+                if (event.key === 'ArrowUp') {
+                  setMentionIndex(i => Math.max(i - 1, 0));
+                  return true;
+                }
+                if (event.key === 'Enter' || event.key === 'Tab') {
+                  const member = items[idx];
+                  if (member && mentionCommandRef.current) {
+                    mentionCommandRef.current({ id: member.id, label: member.name });
+                  }
+                  return true;
+                }
+                if (event.key === 'Escape') {
+                  setShowMentionDropdown(false);
+                  return true;
+                }
+                return false;
+              },
+            }),
+          },
+        }),
+      ],
+      content: '',
+      onUpdate({ editor }) {
+        // Importance prefix shortcuts: !! → urgent, ! → important
+        if (onImportanceChange) {
+          const text = editor.getText();
+          if (text.startsWith('!! ')) {
+            onImportanceChange('urgent');
+            editor.chain().deleteRange({ from: 1, to: 4 }).run();
+            return;
+          }
+          if (text.startsWith('! ') && !text.startsWith('!! ')) {
+            onImportanceChange('important');
+            editor.chain().deleteRange({ from: 1, to: 3 }).run();
+            return;
+          }
+        }
+        const serialized = serializeNode(editor.getJSON());
+        onChange(serialized);
+      },
+      editorProps: {
+        handleKeyDown(view, event) {
+          // Enter (no shift) → submit
+          if (event.key === 'Enter' && !event.shiftKey && !showMentionDropdown) {
+            event.preventDefault();
+            // Fire a synthetic form submit
+            const form = (view.dom as HTMLElement).closest('form');
+            if (form) {
+              const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+              form.dispatchEvent(submitEvent);
+            }
+            return true;
+          }
+          return false;
+        },
+      },
+    });
+
+    // ── imperative ref ───────────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
-      focus: () => divRef.current?.focus(),
+      focus: () => editor?.commands.focus(),
     }));
 
-    // Ctrl+/ / Cmd+/ — global shortcut to focus this composer
+    // Ctrl+/ → focus
     useEffect(() => {
-      const handler = () => divRef.current?.focus();
+      const handler = () => editor?.commands.focus();
       window.addEventListener('fw:focus-composer', handler);
       return () => window.removeEventListener('fw:focus-composer', handler);
-    }, []);
+    }, [editor]);
 
-    // When parent clears value (e.g. after submit), clear the div DOM
+    // Clear editor when parent clears value (after submit)
     useEffect(() => {
-      if (value === '' && divRef.current) {
-        const current = serializeContent(divRef.current);
-        if (current !== '') {
-          divRef.current.innerHTML = '';
-          lastSerializedRef.current = '';
-        }
+      if (value === '' && editor && !editor.isEmpty) {
+        editor.commands.clearContent();
       }
-    }, [value]);
+    }, [value, editor]);
 
-    const filteredMembers = mentionQuery !== null
-      ? members.filter(m => m.name.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 6)
-      : [];
-
-    const showMention = filteredMembers.length > 0;
-
-    const selectMention = (member: Member, priority = 'normal') => {
-      if (!divRef.current) return;
-      insertMentionChip(member);
-      setMentionQuery(null);
+    // ── Mention selection ────────────────────────────────────────────────────
+    const selectMention = useCallback((member: Member, priority = 'normal') => {
+      if (mentionCommandRef.current) {
+        mentionCommandRef.current({ id: member.id, label: member.name });
+      }
       if (priority !== 'normal') {
         onMentionPrioritySet?.(member.name, member.id, priority);
       }
-      const serialized = serializeContent(divRef.current);
-      lastSerializedRef.current = serialized;
-      onChange(serialized);
-      requestAnimationFrame(() => divRef.current?.focus());
+      setShowMentionDropdown(false);
+      requestAnimationFrame(() => editor?.commands.focus());
+    }, [editor, onMentionPrioritySet]);
+
+    // ── Toolbar actions ──────────────────────────────────────────────────────
+    const handleAddLink = () => {
+      if (!linkInput.trim() || !editor) return;
+      const href = linkInput.startsWith('http') ? linkInput.trim() : `https://${linkInput.trim()}`;
+      const sel = savedSelectionRef.current;
+      if (sel && sel.from !== sel.to) {
+        // Wrap the saved selection with the link mark
+        editor.chain().focus().setTextSelection(sel).setLink({ href }).run();
+      } else {
+        // No selection — insert the URL as link text at the saved (or current) position
+        const pos = sel?.from ?? editor.state.selection.from;
+        editor.chain().focus().setTextSelection(pos)
+          .insertContent({ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }] })
+          .run();
+      }
+      savedSelectionRef.current = null;
+      setLinkInput('');
+      setShowLinkInput(false);
     };
 
-    const handleInput = () => {
-      if (!divRef.current) return;
-      const serialized = serializeContent(divRef.current);
-
-      // Prefix shorthand: `!! ` → urgent, `! ` → important (strip prefix from DOM)
-      if (onImportanceChange) {
-        if (serialized.startsWith('!! ')) {
-          onImportanceChange('urgent');
-          stripPrefixFromDiv(divRef.current, 3);
-          const stripped = serializeContent(divRef.current);
-          lastSerializedRef.current = stripped;
-          onChange(stripped);
-          setMentionQuery(null);
-          return;
-        }
-        if (serialized.startsWith('! ') && !serialized.startsWith('!! ')) {
-          onImportanceChange('important');
-          stripPrefixFromDiv(divRef.current, 2);
-          const stripped = serializeContent(divRef.current);
-          lastSerializedRef.current = stripped;
-          onChange(stripped);
-          setMentionQuery(null);
-          return;
-        }
-      }
-
-      lastSerializedRef.current = serialized;
-      onChange(serialized);
-      const query = getMentionQueryFromCaret(divRef.current);
-      setMentionQuery(query);
-      setMentionIndex(0);
+    const handleEmojiSelect = (emoji: string) => {
+      editor?.chain().focus().insertContent(emoji).run();
+      setShowEmoji(false);
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (showMention) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, filteredMembers.length - 1)); return; }
-        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
-        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); selectMention(filteredMembers[mentionIndex]); return; }
-        if (e.key === 'Escape') { setMentionQuery(null); return; }
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (!showMention) onSubmit(e as unknown as React.FormEvent);
-        return;
-      }
-      if (e.key === 'Enter' && e.shiftKey) {
-        e.preventDefault();
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        document.execCommand('insertLineBreak');
-        return;
-      }
-      onKeyDown?.(e);
-    };
-
-    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const text = e.clipboardData.getData('text/plain');
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      document.execCommand('insertText', false, text);
-    };
-
-    useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
-
-    // Mirrors the same accent/bg used by MessageBubble for received messages
+    // ── Shared render helpers ────────────────────────────────────────────────
     const importanceAccent =
       importance === 'urgent'    ? 'var(--danger)' :
       importance === 'important' ? '#C47B2A'       : null;
     const importanceBg =
-      importance === 'urgent'    ? 'rgba(168,51,42,0.07)'   :
-      importance === 'important' ? 'rgba(196,123,42,0.06)'  : undefined;
+      importance === 'urgent'    ? 'rgba(168,51,42,0.07)'  :
+      importance === 'important' ? 'rgba(196,123,42,0.06)' : undefined;
 
-    const baseEditableStyle: React.CSSProperties = {
-      fontSize: 15,
-      color: 'var(--ink)',
-      letterSpacing: '-0.005em',
-      background: 'transparent',
-      outline: 'none',
-      width: '100%',
-      minHeight: 36,
-      maxHeight: 128,
-      overflowY: 'auto',
-      lineHeight: 1.5,
-      fontFamily: 'inherit',
-      whiteSpace: 'pre-wrap',
-      wordBreak: 'break-word',
+    const importanceState = IMPORTANCE_STATES.find(s => s.value === importance) ?? IMPORTANCE_STATES[0];
+
+    const cycleImportance = (e: React.MouseEvent) => {
+      e.preventDefault();
+      const idx  = IMPORTANCE_STATES.findIndex(s => s.value === importance);
+      const next = IMPORTANCE_STATES[(idx + 1) % IMPORTANCE_STATES.length];
+      onImportanceChange?.(next.value);
     };
 
-    const mentionDropdown = showMention && (
+    const isEmpty = editor?.isEmpty ?? true;
+
+    // ── Mention dropdown ─────────────────────────────────────────────────────
+    const mentionDropdown = showMentionDropdown && mentionItems.length > 0 && (
       <div
         className="absolute bottom-full left-0 mb-2 overflow-hidden z-20 animate-fade-in"
         style={{ background: 'var(--paper)', border: '1px solid var(--rule)', minWidth: 220 }}
       >
-        {filteredMembers.map((m, i) => (
+        {mentionItems.map((m, i) => (
           <div
             key={m.id}
             className="flex items-center"
@@ -307,18 +320,9 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
             {onPriorityAlertMentionAdd && (
               <button
                 type="button"
-                onMouseDown={e => {
-                  e.preventDefault();
-                  selectMention(m);
-                  onPriorityAlertMentionAdd(m.id, m.name);
-                }}
+                onMouseDown={e => { e.preventDefault(); selectMention(m); onPriorityAlertMentionAdd(m.id, m.name); }}
                 title="Send as priority alert"
-                style={{
-                  fontSize: 10, fontWeight: 600, color: 'var(--danger)',
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  padding: '2px 10px', flexShrink: 0, fontFamily: 'inherit',
-                  letterSpacing: '0.06em',
-                }}
+                style={{ fontSize: 10, fontWeight: 600, color: 'var(--danger)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 10px', flexShrink: 0, fontFamily: 'inherit', letterSpacing: '0.06em' }}
               >Alert</button>
             )}
           </div>
@@ -326,7 +330,140 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       </div>
     );
 
-    /* ── inline variant (ThreadPanel) ──────────────────────────────────── */
+    // ── Toolbar (row variant only) ────────────────────────────────────────────
+    const toolbar = variant === 'row' && editor && (
+      <div className="flex items-center gap-1" style={{ marginTop: 8 }}>
+        {/* Format buttons */}
+        <button
+          type="button"
+          title="Bold (Ctrl+B)"
+          onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}
+          style={{
+            padding: '2px 5px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+            color: editor.isActive('bold') ? 'var(--ink)' : 'var(--faint)',
+            background: editor.isActive('bold') ? 'var(--paper-2)' : 'transparent',
+            border: '1px solid transparent',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+          onMouseLeave={e => { if (!editor.isActive('bold')) e.currentTarget.style.color = 'var(--faint)'; }}
+        >B</button>
+
+        <button
+          type="button"
+          title="Italic (Ctrl+I)"
+          onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}
+          style={{
+            padding: '2px 5px', fontSize: 12, fontStyle: 'italic', fontFamily: 'inherit', cursor: 'pointer',
+            color: editor.isActive('italic') ? 'var(--ink)' : 'var(--faint)',
+            background: editor.isActive('italic') ? 'var(--paper-2)' : 'transparent',
+            border: '1px solid transparent',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+          onMouseLeave={e => { if (!editor.isActive('italic')) e.currentTarget.style.color = 'var(--faint)'; }}
+        ><em>I</em></button>
+
+        <button
+          type="button"
+          title="Link"
+          onMouseDown={e => {
+            e.preventDefault();
+            if (editor) {
+              const { from, to } = editor.state.selection;
+              savedSelectionRef.current = { from, to };
+            }
+            setShowLinkInput(v => !v);
+            setLinkInput('');
+          }}
+          style={{
+            padding: '2px 4px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+            color: (editor.isActive('link') || showLinkInput) ? 'var(--ink)' : 'var(--faint)',
+            background: 'transparent', border: '1px solid transparent',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+          onMouseLeave={e => { if (!editor.isActive('link') && !showLinkInput) e.currentTarget.style.color = 'var(--faint)'; }}
+        >
+          <Link2 size={13} />
+        </button>
+
+        <button
+          ref={emojiButtonRef}
+          type="button"
+          title="Emoji"
+          onMouseDown={e => { e.preventDefault(); setShowEmoji(v => !v); }}
+          style={{
+            padding: '2px 4px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+            color: showEmoji ? 'var(--ink)' : 'var(--faint)',
+            background: 'transparent', border: '1px solid transparent',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+          onMouseLeave={e => { if (!showEmoji) e.currentTarget.style.color = 'var(--faint)'; }}
+        >
+          <Smile size={13} />
+        </button>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Importance toggle */}
+        {onImportanceChange && (
+          <button
+            type="button"
+            onClick={cycleImportance}
+            title="Cycle message importance"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: '0.08em',
+              color: importance === 'normal' ? 'var(--faint)' : 'var(--paper)',
+              background: importance === 'normal' ? 'transparent' : importanceState.color,
+              border: importance === 'normal' ? '1px solid var(--rule)' : 'none',
+              flexShrink: 0, cursor: 'pointer', fontFamily: 'inherit',
+              padding: importance === 'normal' ? '2px 6px' : '2px 8px',
+            }}
+          >
+            {importance === 'normal' ? '!' : importanceState.label}
+          </button>
+        )}
+
+        <button
+          type="submit"
+          disabled={isEmpty}
+          className="btn-primary flex-shrink-0"
+        >
+          Send →
+        </button>
+      </div>
+    );
+
+    // ── Link input (inline, below toolbar) ───────────────────────────────────
+    const linkInputEl = showLinkInput && (
+      <div className="flex items-baseline gap-2 mt-1.5 animate-fade-in">
+        <input
+          autoFocus
+          type="url"
+          value={linkInput}
+          onChange={e => setLinkInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); handleAddLink(); }
+            if (e.key === 'Escape') { setShowLinkInput(false); setLinkInput(''); }
+          }}
+          placeholder="https://..."
+          style={{
+            fontSize: 12, flex: 1, background: 'transparent', border: 'none',
+            borderBottom: '1px solid var(--ink)', outline: 'none', fontFamily: 'inherit',
+            color: 'var(--ink)', paddingBottom: 2,
+          }}
+        />
+        <button type="button" className="btn-primary" onClick={handleAddLink}
+          style={{ fontSize: 11 }}>
+          Add →
+        </button>
+        <button type="button" className="btn-ghost" onClick={() => { setShowLinkInput(false); setLinkInput(''); }}
+          style={{ fontSize: 11 }}>
+          Cancel
+        </button>
+      </div>
+    );
+
+    // ── Inline variant ────────────────────────────────────────────────────────
     if (variant === 'inline') {
       return (
         <form onSubmit={onSubmit} className={`relative ${className}`}
@@ -337,36 +474,19 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
             transition: 'border-left-color 0.15s, background 0.15s, padding 0.15s',
           }}>
           {mentionDropdown}
-          <div className="flex items-baseline gap-3" style={{ borderBottom: '1px solid var(--rule)' }}
-            onFocus={e => (e.currentTarget.style.borderBottomColor = 'var(--ink)')}
-            onBlur={e => (e.currentTarget.style.borderBottomColor = 'var(--rule)')}>
-            <div
-              ref={divRef}
-              contentEditable
-              role="textbox"
-              spellCheck
-              aria-multiline="true"
-              aria-placeholder={placeholder}
-              data-placeholder={placeholder}
-              className="composer-input"
-              onInput={handleInput}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              style={{ ...baseEditableStyle, flex: 1, padding: '6px 0' }}
+          <div className="flex items-baseline gap-3" style={{ borderBottom: '1px solid var(--rule)' }}>
+            <EditorContent
+              editor={editor}
+              className="tiptap-wrapper flex-1"
+              style={{ minHeight: 36, maxHeight: 128, overflowY: 'auto', padding: '6px 0' }}
             />
             {importanceAccent && (
               <span style={{
                 fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
-                color: 'var(--paper)', background: importanceAccent,
-                padding: '2px 7px', flexShrink: 0,
+                color: 'var(--paper)', background: importanceAccent, padding: '2px 7px', flexShrink: 0,
               }}>{importance}</span>
             )}
-            <button
-              type="submit"
-              disabled={!value.trim()}
-              className="btn-primary flex-shrink-0"
-              style={{ paddingBottom: 8 }}
-            >
+            <button type="submit" disabled={isEmpty} className="btn-primary flex-shrink-0" style={{ paddingBottom: 8 }}>
               Send →
             </button>
           </div>
@@ -374,16 +494,7 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
       );
     }
 
-    /* ── row variant (ChannelView / DMView) ─────────────────────────────── */
-    const importanceState = IMPORTANCE_STATES.find(s => s.value === importance) ?? IMPORTANCE_STATES[0];
-
-    const cycleImportance = (e: React.MouseEvent) => {
-      e.preventDefault();
-      const idx = IMPORTANCE_STATES.findIndex(s => s.value === importance);
-      const next = IMPORTANCE_STATES[(idx + 1) % IMPORTANCE_STATES.length];
-      onImportanceChange?.(next.value);
-    };
-
+    // ── Row variant ───────────────────────────────────────────────────────────
     return (
       <form onSubmit={onSubmit} className={`relative ${className}`}
         style={{
@@ -393,59 +504,35 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
           transition: 'border-left-color 0.15s, background 0.15s, padding 0.15s',
         }}>
         {mentionDropdown}
-        <div className="flex items-baseline gap-4"
-          style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 10 }}>
-          <div
-            ref={divRef}
-            contentEditable
-            role="textbox"
-            spellCheck
-            aria-multiline="true"
-            aria-placeholder={placeholder}
-            data-placeholder={placeholder}
-            className="composer-input"
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            style={{ ...baseEditableStyle, flex: 1, padding: '4px 0' }}
-          />
-          {onImportanceChange && (
-            <button
-              type="button"
-              onClick={cycleImportance}
-              title="Cycle message importance"
-              style={{
-                fontSize: 11, fontWeight: 600, letterSpacing: '0.08em',
-                color: importance === 'normal' ? 'var(--faint)' : 'var(--paper)',
-                background: importance === 'normal' ? 'transparent' : importanceState.color,
-                border: importance === 'normal' ? '1px solid var(--rule)' : 'none',
-                flexShrink: 0, cursor: 'pointer', fontFamily: 'inherit',
-                padding: importance === 'normal' ? '2px 6px' : '2px 8px',
-              }}
-            >
-              {importance === 'normal' ? '!' : importanceState.label}
-            </button>
-          )}
-          <button
-            type="submit"
-            disabled={!value.trim()}
-            className="btn-primary flex-shrink-0"
-          >
-            Send →
-          </button>
-        </div>
-        <p style={{ fontSize: 11, color: 'var(--faint)', marginTop: 8, letterSpacing: '0.02em' }}>
+
+        {/* Editor */}
+        <EditorContent
+          editor={editor}
+          className="tiptap-wrapper"
+          style={{ minHeight: 36, maxHeight: 128, overflowY: 'auto', borderBottom: '1px solid var(--rule)', paddingBottom: 8 }}
+        />
+
+        {/* Toolbar row */}
+        {toolbar}
+
+        {/* Link input */}
+        {linkInputEl}
+
+        {/* Hint row */}
+        <p style={{ fontSize: 11, color: 'var(--faint)', marginTop: 6, letterSpacing: '0.02em' }}>
           <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>↵</kbd>
-          {' '}to send · <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>Shift↵</kbd>
-          {' '}for newline · <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>! </kbd>
-          {' '}/{' '}<kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>!! </kbd>
-          {' '}for priority
+          {' '}send ·{' '}
+          <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>Shift↵</kbd>
+          {' '}newline ·{' '}
+          <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>!! </kbd>
+          {' '}/{' '}
+          <kbd style={{ fontFamily: 'inherit', fontSize: 10, border: '1px solid var(--rule)', padding: '1px 5px', color: 'var(--muted)' }}>! </kbd>
+          {' '}priority
           {importanceAccent && (
             <span style={{ marginLeft: 8 }}>·{' '}
               <span style={{
                 fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
-                color: 'var(--paper)', background: importanceAccent,
-                padding: '2px 7px',
+                color: 'var(--paper)', background: importanceAccent, padding: '2px 7px',
               }}>{importance}</span>
             </span>
           )}
@@ -455,6 +542,15 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
             </span>
           )}
         </p>
+
+        {/* Emoji picker */}
+        {showEmoji && (
+          <EmojiPicker
+            anchorRef={emojiButtonRef}
+            onSelect={handleEmojiSelect}
+            onClose={() => setShowEmoji(false)}
+          />
+        )}
       </form>
     );
   },

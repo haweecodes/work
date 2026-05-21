@@ -42,6 +42,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   
   // Inline Subtask State
@@ -174,7 +175,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   };
 
   const handleDelete = async () => {
-    if (!selectedTask || !confirm('Delete this task?')) return;
+    if (!selectedTask) return;
     setDeleting(true);
     try {
       await client.delete(`/api/tasks/${selectedTask.id}`);
@@ -182,6 +183,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
       setSelectedTask(null);
     } finally {
       setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -584,21 +586,38 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
       </div>
 
       <div className="flex items-baseline gap-6 flex-shrink-0" style={{ padding: '16px 28px 20px', borderTop: '1px solid var(--rule)' }}>
-        <button onClick={handleSave} className="btn-primary"
-          disabled={saving || (form.board_id !== selectedTask.board_id && !form.column_id)}
-          title={form.board_id !== selectedTask.board_id && !form.column_id ? 'Select a column in the target board first' : 'Save (⌘↵)'}
-          style={saveStatus === 'saved' ? { color: 'var(--ink)', textDecorationColor: 'var(--ink)' } : saveStatus === 'error' ? { color: 'var(--danger)' } : {}}>
-          {saving ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? 'Save failed — retry' : 'Save changes →'}
-        </button>
-        <button onClick={handleDelete} className="btn-danger"
-          disabled={deleting || subtasks.length > 0}
-          title={subtasks.length > 0 ? `Cannot delete — has ${subtasks.length} subtask${subtasks.length > 1 ? 's' : ''}` : undefined}>
-          {deleting ? '…' : 'Delete'}
-        </button>
-        {subtasks.length > 0 && (
-          <span style={{ fontSize: 11, color: 'var(--faint)' }}>
-            Delete subtasks first
-          </span>
+        {showDeleteConfirm ? (
+          <>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>Delete this task?</span>
+            <button onClick={handleDelete} disabled={deleting} className="btn-danger"
+              style={{ color: 'var(--danger)' }}>
+              {deleting ? '…' : 'Confirm'}
+            </button>
+            <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting} className="btn-ghost">
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={handleSave} className="btn-primary"
+              disabled={saving || (form.board_id !== selectedTask.board_id && !form.column_id)}
+              title={form.board_id !== selectedTask.board_id && !form.column_id ? 'Select a column in the target board first' : 'Save (⌘↵)'}
+              style={saveStatus === 'saved' ? { color: 'var(--ink)', textDecorationColor: 'var(--ink)' } : saveStatus === 'error' ? { color: 'var(--danger)' } : {}}>
+              {saving ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? 'Save failed — retry' : 'Save changes →'}
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="btn-danger"
+              disabled={subtasks.length > 0}
+              title={subtasks.length > 0 ? `Cannot delete — has ${subtasks.length} subtask${subtasks.length > 1 ? 's' : ''}` : undefined}>
+              Delete
+            </button>
+            {subtasks.length > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--faint)' }}>
+                Delete subtasks first
+              </span>
+            )}
+          </>
         )}
       </div>
     </div>

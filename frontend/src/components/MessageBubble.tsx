@@ -353,8 +353,12 @@ function MessageBubble({
     const sorted = [...members]
       .sort((a, b) => b.name.length - a.name.length)
       .map(m => m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const alt = sorted.length > 0 ? `@(?:${sorted.join('|')})` : '@\\w+';
-    return new RegExp(`(\\*\\*[^*]+\\*\\*|${alt})`, 'gi');
+    const mentionAlt = sorted.length > 0 ? `@(?:${sorted.join('|')})` : '@\\w+';
+    // Order matters: ** before * to avoid mis-matching bold as italic
+    return new RegExp(
+      `(\\*\\*[^*]+\\*\\*|\\*[^*]+\\*|\`[^\`]+\`|\\[[^\\]]+\\]\\([^)]+\\)|${mentionAlt})`,
+      'gi'
+    );
   }, [members]);
 
   const [reactions, setReactions] = useState<Reaction[]>(msg.reactions ?? []);
@@ -470,7 +474,19 @@ function MessageBubble({
     const parts = msg.content.split(mentionSplitRe);
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
+        return <strong key={i} style={{ fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        return <em key={i}>{part.slice(1, -1)}</em>;
+      }
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return <code key={i} style={{ fontFamily: 'monospace', fontSize: '0.88em', background: 'var(--paper-2)', padding: '1px 4px' }}>{part.slice(1, -1)}</code>;
+      }
+      if (part.startsWith('[') && part.includes('](')) {
+        const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (match) {
+          return <a key={i} href={match[2]} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'underline' }}>{match[1]}</a>;
+        }
       }
       if (part.startsWith('@')) {
         const mentionName = part.slice(1);
