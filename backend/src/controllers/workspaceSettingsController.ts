@@ -4,7 +4,6 @@ import { db, workspaces } from '../db';
 import {
   getWorkspaceSettings,
   upsertWorkspaceSettings,
-  DEFAULT_STATUSES,
   type StatusConfig,
 } from '../services/workspaceSettingsService';
 
@@ -14,7 +13,7 @@ function isAdmin(userId: string, workspaceOwnerId: string, role: string | null):
 
 export async function getSettings(req: Request, res: Response) {
   try {
-    const settings = await getWorkspaceSettings(req.params.id);
+    const settings = await getWorkspaceSettings(String(req.params.id));
     res.json(settings);
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -26,14 +25,14 @@ export async function updateSettings(req: Request, res: Response) {
     const { task_update_statuses } = req.body;
 
     // Must be admin or owner
-    const ws = await db.query.workspaces.findFirst({ where: eq(workspaces.id, req.params.id) });
+    const ws = await db.query.workspaces.findFirst({ where: eq(workspaces.id, String(req.params.id)) });
     if (!ws) return res.status(404).json({ error: 'Workspace not found' });
 
     const { workspace_members } = await import('../db');
     const { and } = await import('drizzle-orm');
     const member = await db.query.workspace_members.findFirst({
       where: and(
-        eq(workspace_members.workspace_id, req.params.id),
+        eq(workspace_members.workspace_id, String(req.params.id)),
         eq(workspace_members.user_id, req.user.id),
       ),
       columns: { role: true },
@@ -62,7 +61,7 @@ export async function updateSettings(req: Request, res: Response) {
       requiresReason: !!s.requiresReason,
     }));
 
-    await upsertWorkspaceSettings(req.params.id, statuses);
+    await upsertWorkspaceSettings(String(req.params.id), statuses);
     res.json({ task_update_statuses: statuses });
   } catch {
     res.status(500).json({ error: 'Server error' });

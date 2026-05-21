@@ -56,13 +56,13 @@ export async function create(req: Request, res: Response) {
 }
 
 export async function getById(req: Request, res: Response) {
-  const task = await taskSvc.getTaskForDetail(req.params.id, req.workspaceId!);
+  const task = await taskSvc.getTaskForDetail(String(req.params.id), req.workspaceId!);
   if (!task) return res.status(404).json({ error: 'Task not found' });
   res.json(task);
 }
 
 export async function getDetailForNotification(req: Request, res: Response) {
-  const task = await taskSvc.getTaskDetailForNotification(req.params.id);
+  const task = await taskSvc.getTaskDetailForNotification(String(req.params.id));
   if (!task) return res.status(404).json({ error: 'Task not found' });
   res.json(task);
 }
@@ -71,7 +71,7 @@ export async function update(req: Request, res: Response) {
   try {
     const { title, description, priority, due_date, assignee_ids, column_id, board_id, parent_task_id } = req.body;
 
-    const task = await taskSvc.getTaskById(req.params.id, req.workspaceId!);
+    const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
     const resolvedBoardId = board_id && board_id !== task.board_id ? board_id : task.board_id;
@@ -95,10 +95,10 @@ export async function update(req: Request, res: Response) {
     }
 
     const resolvedParentId = parent_task_id !== undefined
-      ? (parent_task_id === req.params.id ? null : (parent_task_id || null))
+      ? (parent_task_id === String(req.params.id) ? null : (parent_task_id || null))
       : task.parent_task_id;
 
-    await taskSvc.updateTask(req.params.id, {
+    await taskSvc.updateTask(String(req.params.id), {
       title: title ?? task.title,
       description: description ?? task.description,
       priority: priority ?? task.priority,
@@ -111,7 +111,7 @@ export async function update(req: Request, res: Response) {
 
     // Migrate subtasks if board changed
     if (board_id && board_id !== task.board_id) {
-      const subtasks = await taskSvc.getTasksByParent(req.params.id);
+      const subtasks = await taskSvc.getTasksByParent(String(req.params.id));
       for (const st of subtasks) {
         await taskSvc.migrateSubtask(st.id, resolvedBoardId, resolvedColumnId);
         if (io) {
@@ -125,36 +125,36 @@ export async function update(req: Request, res: Response) {
     // Assignee diff
     if (Array.isArray(assignee_ids)) {
       const actorName = await taskSvc.getUserName(req.user.id);
-      const currentAssignees = await taskSvc.getTaskAssignees(req.params.id);
+      const currentAssignees = await taskSvc.getTaskAssignees(String(req.params.id));
       const currentIds = new Set(currentAssignees.map(a => a.user_id));
       const newIds = new Set<string>(assignee_ids);
 
       for (const uid of newIds) {
         if (!currentIds.has(uid)) {
-          await taskSvc.addAssignee(req.params.id, uid);
+          await taskSvc.addAssignee(String(req.params.id), uid);
           if (uid !== req.user.id) {
             const msg = `${actorName} assigned you to "${title ?? task.title}"`;
-            const notifId = await taskSvc.createAssignmentNotification(uid, 'task_assigned', req.params.id, msg, req.workspaceId!);
-            if (io) io.to(`user:${uid}`).emit('notification', { id: notifId, type: 'task_assigned', message: msg, reference_id: req.params.id, reference_type: 'task', workspace_id: req.workspaceId });
+            const notifId = await taskSvc.createAssignmentNotification(uid, 'task_assigned', String(req.params.id), msg, req.workspaceId!);
+            if (io) io.to(`user:${uid}`).emit('notification', { id: notifId, type: 'task_assigned', message: msg, reference_id: String(req.params.id), reference_type: 'task', workspace_id: req.workspaceId });
           }
         }
       }
       for (const uid of currentIds) {
         if (!newIds.has(uid)) {
-          await taskSvc.removeAssignee(req.params.id, uid);
+          await taskSvc.removeAssignee(String(req.params.id), uid);
           if (uid !== req.user.id) {
             const msg = `${actorName} removed you from "${title ?? task.title}"`;
-            const notifId = await taskSvc.createAssignmentNotification(uid, 'task_unassigned', req.params.id, msg, req.workspaceId!);
-            if (io) io.to(`user:${uid}`).emit('notification', { id: notifId, type: 'task_unassigned', message: msg, reference_id: req.params.id, reference_type: 'task', workspace_id: req.workspaceId });
+            const notifId = await taskSvc.createAssignmentNotification(uid, 'task_unassigned', String(req.params.id), msg, req.workspaceId!);
+            if (io) io.to(`user:${uid}`).emit('notification', { id: notifId, type: 'task_unassigned', message: msg, reference_id: String(req.params.id), reference_type: 'task', workspace_id: req.workspaceId });
           }
         }
       }
     }
 
-    const updated = await taskSvc.getEnrichedTask(req.params.id);
+    const updated = await taskSvc.getEnrichedTask(String(req.params.id));
     if (io) {
       if (board_id && board_id !== task.board_id) {
-        io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: req.params.id });
+        io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: String(req.params.id) });
       }
       io.to(`board:${resolvedBoardId}`).emit('task_updated', { type: 'updated', task: updated });
     }
@@ -167,11 +167,11 @@ export async function update(req: Request, res: Response) {
 export async function move(req: Request, res: Response) {
   try {
     const { column_id, position } = req.body;
-    const task = await taskSvc.getTaskById(req.params.id, req.workspaceId!);
+    const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    await taskSvc.moveTask(req.params.id, column_id ?? task.column_id, position ?? task.position);
-    const updated = await taskSvc.getEnrichedTask(req.params.id);
+    await taskSvc.moveTask(String(req.params.id), column_id ?? task.column_id, position ?? task.position);
+    const updated = await taskSvc.getEnrichedTask(String(req.params.id));
     if (io) io.to(`board:${updated!.board_id}`).emit('task_updated', { type: 'moved', task: updated });
     res.json(updated);
   } catch {
@@ -181,7 +181,7 @@ export async function move(req: Request, res: Response) {
 
 export async function resolveByKey(req: Request, res: Response) {
   try {
-    const task = await taskSvc.resolveTaskByKey(req.params.taskKey, req.workspaceId!);
+    const task = await taskSvc.resolveTaskByKey(String(req.params.taskKey), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
   } catch {
@@ -191,16 +191,16 @@ export async function resolveByKey(req: Request, res: Response) {
 
 export async function deleteTask(req: Request, res: Response) {
   try {
-    const task = await taskSvc.getTaskById(req.params.id, req.workspaceId!);
+    const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    const subtaskCount = await taskSvc.getSubtaskCount(req.params.id);
+    const subtaskCount = await taskSvc.getSubtaskCount(String(req.params.id));
     if (subtaskCount > 0) {
       return res.status(400).json({ error: `Cannot delete a task that has ${subtaskCount} subtask${subtaskCount > 1 ? 's' : ''}. Delete or reassign the subtasks first.` });
     }
 
-    await taskSvc.deleteTask(req.params.id);
-    if (io) io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: req.params.id });
+    await taskSvc.deleteTask(String(req.params.id));
+    if (io) io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: String(req.params.id) });
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Server error' });

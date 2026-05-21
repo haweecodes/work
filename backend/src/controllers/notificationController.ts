@@ -82,12 +82,12 @@ export async function sendPriorityAlert(req: Request, res: Response) {
 export async function resolveAlert(req: Request, res: Response) {
   try {
     const notifications = await notifService.getNotifications(req.user.id, req.workspaceId!);
-    const notif = notifications.find(n => n.id === req.params.id && n.type === 'priority_alert');
+    const notif = notifications.find(n => n.id === String(req.params.id) && n.type === 'priority_alert');
 
     if (notif?.reference_id) {
       await notifService.resolveAlertsByReference(req.user.id, notif.reference_id, notif.workspace_id!);
     } else {
-      await notifService.resolveAlertById(req.params.id, req.user.id);
+      await notifService.resolveAlertById(String(req.params.id), req.user.id);
     }
     res.json({ success: true });
   } catch {

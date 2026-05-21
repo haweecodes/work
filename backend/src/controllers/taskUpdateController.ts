@@ -55,7 +55,7 @@ export async function respond(req: Request, res: Response) {
     const { task_id, status, reason } = req.body;
     if (!task_id || !status) return res.status(400).json({ error: 'task_id and status required' });
 
-    const request = await svc.getRequestById(req.params.requestId, req.workspaceId!);
+    const request = await svc.getRequestById(String(req.params.requestId), req.workspaceId!);
     if (!request) return res.status(404).json({ error: 'Request not found' });
 
     // Validate status against workspace-configured statuses
@@ -90,7 +90,7 @@ export async function respond(req: Request, res: Response) {
 
 export async function getHistory(req: Request, res: Response) {
   try {
-    const result = await svc.getUpdateHistory(req.params.boardId, req.workspaceId!);
+    const result = await svc.getUpdateHistory(String(req.params.boardId), req.workspaceId!);
     res.json(result);
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -108,7 +108,7 @@ export async function getPending(req: Request, res: Response) {
 
 export async function getNotificationTask(req: Request, res: Response) {
   try {
-    const task = await svc.getTaskForNotification(req.params.taskId, req.workspaceId!);
+    const task = await svc.getTaskForNotification(String(req.params.taskId), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json({ board_id: task.board_id, task_key: task.task_key });
   } catch {

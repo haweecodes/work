@@ -22,7 +22,7 @@ export async function create(req: Request, res: Response) {
 }
 
 export async function getMembers(req: Request, res: Response) {
-  const members = await ws.getWorkspaceMembers(req.params.id);
+  const members = await ws.getWorkspaceMembers(String(req.params.id));
   res.json(members);
 }
 
@@ -32,14 +32,14 @@ export async function invite(req: Request, res: Response) {
     const user = await ws.findUserByEmail(email);
     if (!user) return res.status(404).json({ error: 'User not found. They need to register first.' });
 
-    const isMember = await ws.isWorkspaceMember(req.params.id, user.id);
+    const isMember = await ws.isWorkspaceMember(String(req.params.id), user.id);
     if (isMember) return res.status(409).json({ error: 'User is already a member' });
 
-    await ws.addMember(req.params.id, user.id);
+    await ws.addMember(String(req.params.id), user.id);
 
     if (io) {
       const newMember = await ws.getMemberPublicData(user.id);
-      if (newMember) io.to(`workspace:${req.params.id}`).emit('member_joined', { ...newMember, role: 'member' });
+      if (newMember) io.to(`workspace:${String(req.params.id)}`).emit('member_joined', { ...newMember, role: 'member' });
     }
     res.json({ message: 'User invited successfully' });
   } catch {
@@ -49,7 +49,7 @@ export async function invite(req: Request, res: Response) {
 
 export async function getByCode(req: Request, res: Response) {
   try {
-    const workspace = await ws.getWorkspaceByInviteCode(req.params.code);
+    const workspace = await ws.getWorkspaceByInviteCode(String(req.params.code));
     if (!workspace) return res.status(404).json({ error: 'Invalid invite code' });
     res.json({ id: workspace.id, name: workspace.name });
   } catch {
@@ -59,7 +59,7 @@ export async function getByCode(req: Request, res: Response) {
 
 export async function joinByCode(req: Request, res: Response) {
   try {
-    const workspace = await ws.getWorkspaceByInviteCode(req.params.code);
+    const workspace = await ws.getWorkspaceByInviteCode(String(req.params.code));
     if (!workspace) return res.status(404).json({ error: 'Invalid invite code' });
 
     const isMember = await ws.isWorkspaceMember(workspace.id, req.user.id);

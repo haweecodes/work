@@ -8,7 +8,7 @@ let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
 
 export async function listThreads(req: Request, res: Response) {
-  const threads = await dmService.getDmThreads(req.params.workspaceId, req.user.id);
+  const threads = await dmService.getDmThreads(String(req.params.workspaceId), req.user.id);
   res.json(threads);
 }
 
@@ -35,7 +35,7 @@ export async function createThread(req: Request, res: Response) {
 }
 
 export async function getMessages(req: Request, res: Response) {
-  const messages = await dmService.getMessages(req.params.threadId);
+  const messages = await dmService.getMessages(String(req.params.threadId));
   res.json(messages);
 }
 
@@ -48,23 +48,23 @@ export async function sendMessage(req: Request, res: Response) {
     }
 
     if (parent_message_id) {
-      const depth = await getMessageNestDepth(parent_message_id, req.params.threadId);
+      const depth = await getMessageNestDepth(parent_message_id, String(req.params.threadId));
       if (depth >= 2) return res.status(400).json({ error: 'Cannot nest more than 2 levels deep' });
     }
 
     const id = uuidv4();
-    await dmService.createMessage({ id, dm_thread_id: req.params.threadId, sender_id: req.user.id, content, linked_task_id: linked_task_id ?? null, parent_message_id: parent_message_id ?? null, importance: importance ?? 'normal' } as any);
+    await dmService.createMessage({ id, dm_thread_id: String(req.params.threadId), sender_id: req.user.id, content, linked_task_id: linked_task_id ?? null, parent_message_id: parent_message_id ?? null, importance: importance ?? 'normal' } as any);
 
     const sender = await dmService.getUserById(req.user.id);
     const message = {
-      id, dm_thread_id: req.params.threadId, sender_id: req.user.id, content,
+      id, dm_thread_id: String(req.params.threadId), sender_id: req.user.id, content,
       linked_task_id: linked_task_id ?? null, created_at: new Date().toISOString(), sender,
       parent_message_id: parent_message_id ?? null, reply_count: 0,
       reactions: [], shared_message_id: null, shared_message: null,
       importance: importance ?? 'normal',
     };
 
-    const participantIds = await dmService.getDmParticipantIds(req.params.threadId);
+    const participantIds = await dmService.getDmParticipantIds(String(req.params.threadId));
 
     if (io) {
       if (parent_message_id) {
@@ -75,7 +75,7 @@ export async function sendMessage(req: Request, res: Response) {
         threadParticipantIds.forEach(sid => { io!.to(`user:${sid}`).emit('new_dm', message); notified.add(sid); });
         if (!notified.has(req.user.id)) io.to(`user:${req.user.id}`).emit('new_dm', message);
       } else {
-        io.to(`dm:${req.params.threadId}`).emit('new_dm', message);
+        io.to(`dm:${String(req.params.threadId)}`).emit('new_dm', message);
       }
     }
 
@@ -100,7 +100,7 @@ export async function sendMessage(req: Request, res: Response) {
 }
 
 export async function getThreadReplies(req: Request, res: Response) {
-  const messages = await dmService.getThreadReplies(req.params.threadId, req.params.messageId);
+  const messages = await dmService.getThreadReplies(String(req.params.threadId), String(req.params.messageId));
   res.json(messages);
 }
 

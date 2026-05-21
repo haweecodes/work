@@ -7,7 +7,7 @@ let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
 
 export async function list(req: Request, res: Response) {
-  const channels = await channelSvc.getChannelsByWorkspace(req.params.workspaceId, req.user.id);
+  const channels = await channelSvc.getChannelsByWorkspace(String(req.params.workspaceId), req.user.id);
   res.json(channels);
 }
 
@@ -38,7 +38,7 @@ export async function create(req: Request, res: Response) {
 
 export async function archive(req: Request, res: Response) {
   try {
-    const channel = await channelSvc.getChannelById(req.params.channelId, req.workspaceId!);
+    const channel = await channelSvc.getChannelById(String(req.params.channelId), req.workspaceId!);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
     const workspaceId = channel.workspace_id;
@@ -46,11 +46,11 @@ export async function archive(req: Request, res: Response) {
     const isCreator = channel.created_by === req.user.id;
     if (!isOwner && !isCreator) return res.status(403).json({ error: 'Not allowed' });
 
-    await channelSvc.archiveChannel(req.params.channelId);
+    await channelSvc.archiveChannel(String(req.params.channelId));
 
     if (io) {
-      const memberIds = await channelSvc.getChannelMemberIds(req.params.channelId);
-      memberIds.forEach(uid => io!.to(`user:${uid}`).emit('channel_archived', { channelId: req.params.channelId }));
+      const memberIds = await channelSvc.getChannelMemberIds(String(req.params.channelId));
+      memberIds.forEach(uid => io!.to(`user:${uid}`).emit('channel_archived', { channelId: String(req.params.channelId) }));
     }
 
     res.json({ success: true });
@@ -60,7 +60,7 @@ export async function archive(req: Request, res: Response) {
 }
 
 export async function getMessages(req: Request, res: Response) {
-  const messages = await channelSvc.getMessages(req.params.channelId);
+  const messages = await channelSvc.getMessages(String(req.params.channelId));
   res.json(messages);
 }
 
@@ -135,7 +135,7 @@ export async function editMessage(req: Request, res: Response) {
   try {
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'content required' });
-    const updated = await channelSvc.editMessage(req.params.id, content.trim(), req.user.id);
+    const updated = await channelSvc.editMessage(String(req.params.id), content.trim(), req.user.id);
     if (!updated) return res.status(403).json({ error: 'Not allowed' });
     if (io) io.to(`channel:${updated.channel_id}`).emit('message_updated', updated);
     res.json(updated);
@@ -146,9 +146,9 @@ export async function editMessage(req: Request, res: Response) {
 
 export async function deleteMessage(req: Request, res: Response) {
   try {
-    const msg = await channelSvc.deleteMessage(req.params.id, req.user.id);
+    const msg = await channelSvc.deleteMessage(String(req.params.id), req.user.id);
     if (!msg) return res.status(403).json({ error: 'Not allowed' });
-    if (io) io.to(`channel:${msg.channel_id}`).emit('message_deleted', { id: req.params.id });
+    if (io) io.to(`channel:${msg.channel_id}`).emit('message_deleted', { id: String(req.params.id) });
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -156,21 +156,21 @@ export async function deleteMessage(req: Request, res: Response) {
 }
 
 export async function getThreadReplies(req: Request, res: Response) {
-  const messages = await channelSvc.getThreadReplies(req.params.channelId, req.params.messageId);
+  const messages = await channelSvc.getThreadReplies(String(req.params.channelId), String(req.params.messageId));
   res.json(messages);
 }
 
 export async function shareMessage(req: Request, res: Response) {
   try {
     const { target_channel_id, target_dm_thread_id, content } = req.body;
-    const original = await channelSvc.getMessageById(req.params.messageId);
+    const original = await channelSvc.getMessageById(String(req.params.messageId));
     if (!original) return res.status(404).json({ error: 'Message not found' });
 
     const shareContent = content || `Shared: "${original.content?.slice(0, 100) ?? ''}"`;
-    const id = await channelSvc.shareMessage(req.params.messageId, target_channel_id ?? null, target_dm_thread_id ?? null, req.user.id, shareContent);
+    const id = await channelSvc.shareMessage(String(req.params.messageId), target_channel_id ?? null, target_dm_thread_id ?? null, req.user.id, shareContent);
 
     const sender = await channelSvc.getUserById(req.user.id);
-    const sharedMessage = { id, content: shareContent, sender, created_at: new Date().toISOString(), shared_message_id: req.params.messageId };
+    const sharedMessage = { id, content: shareContent, sender, created_at: new Date().toISOString(), shared_message_id: String(req.params.messageId) };
 
     if (io) {
       if (target_channel_id) io.to(`channel:${target_channel_id}`).emit('new_message', sharedMessage);
@@ -183,7 +183,7 @@ export async function shareMessage(req: Request, res: Response) {
 }
 
 export async function getReactions(req: Request, res: Response) {
-  const reactions = await channelSvc.getReactions(req.params.messageId);
+  const reactions = await channelSvc.getReactions(String(req.params.messageId));
   res.json(reactions);
 }
 
@@ -192,13 +192,13 @@ export async function toggleReaction(req: Request, res: Response) {
     const { emoji } = req.body;
     if (!emoji || emoji.length > 4) return res.status(400).json({ error: 'Invalid emoji' });
 
-    const isMember = await channelSvc.isChannelMember(req.params.messageId, req.user.id);
+    const isMember = await channelSvc.isChannelMember(String(req.params.messageId), req.user.id);
     // Note: membership check is on the message's channel, not directly on messageId
-    const reactions = await channelSvc.toggleReaction(req.params.messageId, req.user.id, emoji);
+    const reactions = await channelSvc.toggleReaction(String(req.params.messageId), req.user.id, emoji);
 
-    const msg = await channelSvc.getMessageById(req.params.messageId);
+    const msg = await channelSvc.getMessageById(String(req.params.messageId));
     const roomId = msg?.channel_id ? `channel:${msg.channel_id}` : msg?.dm_thread_id ? `dm:${msg.dm_thread_id}` : null;
-    if (io && roomId) io.to(roomId).emit('reaction_updated', { message_id: req.params.messageId, reactions });
+    if (io && roomId) io.to(roomId).emit('reaction_updated', { message_id: String(req.params.messageId), reactions });
 
     res.json(reactions);
   } catch {
