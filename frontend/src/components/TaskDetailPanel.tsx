@@ -3,7 +3,6 @@ import { format } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Flag, Layers, Calendar, Users, AlignLeft, ListTree, GitBranch, MessageSquare } from 'lucide-react';
 import client from '../api/client';
-import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import useBoardStore from '../store/boardStore';
 import type { Column, TaskAssignee } from '../types';
@@ -23,8 +22,7 @@ const PRIORITY_STYLES: Record<string, PriorityStyle> = {
 
 export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const user = useAuthStore(s => s.user);
+  const [, setSearchParams] = useSearchParams();
   const { members } = useWorkspaceStore();
   const { boards, selectedTask, setSelectedTask, columns, updateTaskInColumn, removeTask } = useBoardStore();
   const [form, setForm] = useState<{
@@ -77,7 +75,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
           title: data.title,
           description: data.description || '',
           priority: data.priority || 'medium',
-          due_date: data.due_date || '',
+          due_date: data.due_date ? data.due_date.slice(0, 10) : '',
           column_id: data.column_id || selectedTask.column_id,
           board_id: data.board_id || selectedTask.board_id || '',
           assignee_ids: data.assignees?.map((a: any) => a.id) || [],
@@ -255,10 +253,9 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   );
 
 
-  const ps = PRIORITY_STYLES[form.priority] || PRIORITY_STYLES.medium;
   const allTasks = columns.flatMap(c => c.tasks);
   const subtasks = allTasks.filter(t => t.parent_task_id === selectedTask.id);
-  const doneColumnId = [...columns].sort((a, b) => b.position - a.position)[0]?.id;
+  const doneColumnId = [...columns].sort((a, b) => (b.position ?? 0) - (a.position ?? 0))[0]?.id;
   const completedSubtasksCount = subtasks.filter(t => t.column_id === doneColumnId).length;
 
   return (
