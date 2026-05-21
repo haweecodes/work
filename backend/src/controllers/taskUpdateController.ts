@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import * as svc from '../services/taskUpdateService';
 import * as notifService from '../services/notificationService';
+import { getWorkspaceSettings } from '../services/workspaceSettingsService';
 
 let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
@@ -52,12 +53,17 @@ export async function requestUpdate(req: Request, res: Response) {
 export async function respond(req: Request, res: Response) {
   try {
     const { task_id, status, reason } = req.body;
-    if (!task_id || !status || !['on_track', 'delayed', 'finished', 'cancelled'].includes(status)) {
-      return res.status(400).json({ error: 'task_id and status required' });
-    }
+    if (!task_id || !status) return res.status(400).json({ error: 'task_id and status required' });
 
     const request = await svc.getRequestById(req.params.requestId, req.workspaceId!);
     if (!request) return res.status(404).json({ error: 'Request not found' });
+
+    // Validate status against workspace-configured statuses
+    const wsSettings = await getWorkspaceSettings(request.workspace_id);
+    const validValues = wsSettings.task_update_statuses.map(s => s.value);
+    if (!validValues.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Valid options: ${validValues.join(', ')}` });
+    }
 
     if (!await svc.isTaskAssignee(task_id, req.user.id)) {
       return res.status(403).json({ error: 'You are not an assignee of this task' });

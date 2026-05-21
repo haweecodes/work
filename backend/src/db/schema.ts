@@ -144,6 +144,12 @@ export const task_update_requests = pgTable('task_update_requests', {
   created_at:   timestamp('created_at').defaultNow(),
 });
 
+export const workspace_settings = pgTable('workspace_settings', {
+  workspace_id:          text('workspace_id').primaryKey().references(() => workspaces.id),
+  task_update_statuses:  text('task_update_statuses').notNull().default('[]'),
+  updated_at:            timestamp('updated_at').defaultNow(),
+});
+
 export const task_update_responses = pgTable('task_update_responses', {
   id:         text('id').primaryKey(),
   request_id: text('request_id').notNull().references(() => task_update_requests.id),
@@ -177,3 +183,4 @@ export type TaskUpdateRequest  = typeof task_update_requests.$inferSelect;
 export type NewTaskUpdateRequest = typeof task_update_requests.$inferInsert;
 export type TaskUpdateResponse = typeof task_update_responses.$inferSelect;
 export type NewTaskUpdateResponse = typeof task_update_responses.$inferInsert;
+export type WorkspaceSettings    = typeof workspace_settings.$inferSelect;

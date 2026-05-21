@@ -23,7 +23,7 @@ const PRIORITY_STYLES: Record<string, PriorityStyle> = {
 export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
-  const { members } = useWorkspaceStore();
+  const { members, taskUpdateStatuses } = useWorkspaceStore();
   const { boards, selectedTask, setSelectedTask, columns, updateTaskInColumn, removeTask } = useBoardStore();
   const [form, setForm] = useState<{
     title: string;
@@ -297,13 +297,13 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
           <p style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>
             <strong style={{ fontWeight: 500 }}>{pendingRequest.requester_name}</strong> is asking for an update on this task
           </p>
-          {respondingStatus === 'delayed' ? (
+          {respondingStatus ? (
             <div className="flex flex-col gap-2">
               <textarea
                 autoFocus
                 rows={2}
                 style={{ fontSize: 13, width: '100%', border: '1px solid var(--rule)', borderRadius: 4, padding: '6px 8px', fontFamily: 'inherit', resize: 'none', outline: 'none' }}
-                placeholder="What's causing the delay? (optional)"
+                placeholder="Add a reason… (optional)"
                 value={delayReason}
                 onChange={e => setDelayReason(e.target.value)}
               />
@@ -315,7 +315,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
                     setSubmittingResponse(true);
                     try {
                       await client.post(`/api/task-updates/${pendingRequest.request_id}/respond`, {
-                        task_id: selectedTask!.id, status: 'delayed', reason: delayReason || undefined,
+                        task_id: selectedTask!.id, status: respondingStatus, reason: delayReason || undefined,
                       });
                       setPendingRequest(null);
                     } finally { setSubmittingResponse(false); }
@@ -327,28 +327,24 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
             </div>
           ) : (
             <div className="flex items-baseline gap-3 flex-wrap">
-              {(['on_track', 'delayed', 'finished', 'cancelled'] as const).map(s => {
-                const labels: Record<string, string> = { on_track: 'On Track', delayed: 'Delayed…', finished: 'Finished', cancelled: 'Cancelled' };
-                const colors: Record<string, string> = { on_track: 'var(--ink)', delayed: '#C47B2A', finished: 'var(--ink)', cancelled: 'var(--faint)' };
-                return (
+              {taskUpdateStatuses.map(s => (
                   <button
-                    key={s}
+                    key={s.value}
                     disabled={submittingResponse}
-                    style={{ fontSize: 12, fontWeight: 500, color: colors[s], letterSpacing: '0.04em', border: `1px solid ${colors[s]}`, padding: '3px 10px' }}
+                    style={{ fontSize: 12, fontWeight: 500, color: s.color, letterSpacing: '0.04em', border: `1px solid ${s.color}`, padding: '3px 10px' }}
                     onClick={async () => {
-                      if (s === 'delayed') { setRespondingStatus('delayed'); return; }
+                      if (s.requiresReason) { setRespondingStatus(s.value); return; }
                       setSubmittingResponse(true);
                       try {
                         await client.post(`/api/task-updates/${pendingRequest.request_id}/respond`, {
-                          task_id: selectedTask!.id, status: s,
+                          task_id: selectedTask!.id, status: s.value,
                         });
                         setPendingRequest(null);
                       } finally { setSubmittingResponse(false); }
                     }}>
-                    {labels[s]}
+                    {s.label}
                   </button>
-                );
-              })}
+              ))}
             </div>
           )}
         </div>

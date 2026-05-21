@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AtSign, ClipboardCheck, Clock, RefreshCw, MessageSquare, AlertTriangle, type LucideIcon } from 'lucide-react';
 import useNotificationStore from '../store/notificationStore';
+import useWorkspaceStore from '../store/workspaceStore';
 import useAuthStore from '../store/authStore';
 import client from '../api/client';
 import { formatDistanceToNow } from 'date-fns';
@@ -53,17 +54,15 @@ const TYPE_ICON: Record<string, LucideIcon> = {
   priority_alert:       AlertTriangle,
 };
 
-const UPDATE_STATUS_COLORS: Record<string, string> = {
-  on_track: 'var(--ink)', delayed: '#C47B2A', finished: 'var(--ink)', cancelled: 'var(--faint)',
-};
-
 function NotificationList({ notifications, onNotifClick, markRead }: {
   notifications: Notification[];
   onNotifClick: (n: Notification) => void;
   markRead: (id: string) => void;
 }) {
-  const [delayedId, setDelayedId] = useState<string | null>(null);
-  const [delayReason, setDelayReason] = useState('');
+  const taskUpdateStatuses = useWorkspaceStore(s => s.taskUpdateStatuses);
+  const [reasonNotifId, setReasonNotifId]       = useState<string | null>(null);
+  const [reasonStatusValue, setReasonStatusValue] = useState<string>('');
+  const [delayReason, setDelayReason]             = useState('');
   // Track in-flight submissions and locally-responded IDs (so they update immediately
   // before the store re-renders with is_read=1)
   const [submitting, setSubmitting] = useState<Set<string>>(new Set());
@@ -146,48 +145,48 @@ function NotificationList({ notifications, onNotifClick, markRead }: {
                   <p style={{ fontSize: 11, color: 'var(--danger)', marginTop: 6 }}>{errors[n.id]}</p>
                 )}
 
-                {delayedId === n.id ? (
+                {reasonNotifId === n.id ? (
                   <div className="mt-2 flex flex-col gap-1.5">
                     <input
                       autoFocus
                       style={{ fontSize: 12, border: '1px solid var(--rule)', padding: '4px 8px', fontFamily: 'inherit', width: '100%', outline: 'none', borderRadius: 2 }}
-                      placeholder="What's causing the delay? (optional)"
+                      placeholder="Add a reason… (optional)"
                       value={delayReason}
                       onChange={e => setDelayReason(e.target.value)}
                       onKeyDown={e => {
-                        if (e.key === 'Enter') { e.preventDefault(); submitResponse(n, 'delayed', delayReason); }
-                        if (e.key === 'Escape') { setDelayedId(null); setDelayReason(''); }
+                        if (e.key === 'Enter') { e.preventDefault(); submitResponse(n, reasonStatusValue, delayReason); }
+                        if (e.key === 'Escape') { setReasonNotifId(null); setDelayReason(''); }
                       }}
                     />
                     <div className="flex items-baseline gap-3">
                       <button className="btn-primary" disabled={isBusy}
-                        onClick={() => submitResponse(n, 'delayed', delayReason)}>
+                        onClick={() => submitResponse(n, reasonStatusValue, delayReason)}>
                         {isBusy ? 'Sending…' : 'Send →'}
                       </button>
                       <button className="btn-ghost"
-                        onClick={() => { setDelayedId(null); setDelayReason(''); }}>
+                        onClick={() => { setReasonNotifId(null); setDelayReason(''); }}>
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex gap-2 mt-2 flex-wrap">
-                    {(['on_track', 'delayed', 'finished', 'cancelled'] as const).map(s => {
-                      const labels: Record<string, string> = {
-                        on_track: 'On Track', delayed: 'Delayed…', finished: 'Finished', cancelled: 'Cancelled',
-                      };
-                      return (
-                        <button key={s} disabled={isBusy}
+                    {taskUpdateStatuses.map(s => (
+                        <button key={s.value} disabled={isBusy}
                           style={{
-                            fontSize: 11, fontWeight: 500, color: UPDATE_STATUS_COLORS[s],
-                            border: `1px solid ${UPDATE_STATUS_COLORS[s]}`, padding: '2px 9px',
+                            fontSize: 11, fontWeight: 500, color: s.color,
+                            border: `1px solid ${s.color}`, padding: '2px 9px',
                             fontFamily: 'inherit', opacity: isBusy ? 0.5 : 1,
                           }}
                           onClick={() => {
-                            if (s === 'delayed') { setDelayedId(n.id); return; }
-                            submitResponse(n, s);
+                            if (s.requiresReason) {
+                              setReasonNotifId(n.id);
+                              setReasonStatusValue(s.value);
+                              return;
+                            }
+                            submitResponse(n, s.value);
                           }}>
-                          {isBusy ? '…' : labels[s]}
+                          {isBusy ? '…' : s.label}
                         </button>
                       );
                     })}

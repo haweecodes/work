@@ -1,5 +1,12 @@
 // Shared domain types used across frontend stores and components
 
+export interface StatusConfig {
+  value: string;
+  label: string;
+  color: string;
+  requiresReason?: boolean;
+}
+
 export interface User {
   id: string;
   name: string;

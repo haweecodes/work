@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import client from '../api/client';
-import type { Workspace, Channel, DmThread, Member } from '../types';
+import type { Workspace, Channel, DmThread, Member, StatusConfig } from '../types';
 
+const DEFAULT_STATUSES: StatusConfig[] = [
+  { value: 'on_track',  label: 'On Track',   color: 'var(--ink)',    requiresReason: false },
+  { value: 'delayed',   label: 'Delayed',     color: '#C47B2A',      requiresReason: true  },
+  { value: 'finished',  label: 'Finished',    color: 'var(--ink)',   requiresReason: false },
+  { value: 'cancelled', label: 'Cancelled',   color: 'var(--faint)', requiresReason: false },
+];
 
 interface WorkspaceState {
   workspaces: Workspace[];
@@ -9,6 +15,7 @@ interface WorkspaceState {
   channels: Channel[];
   dmThreads: DmThread[];
   members: Member[];
+  taskUpdateStatuses: StatusConfig[];
   /** The current user's role in the active workspace ('admin' | 'member' | null) */
   role: 'admin' | 'member' | null;
   /** True if the user is admin OR the workspace owner */
@@ -19,6 +26,8 @@ interface WorkspaceState {
   fetchChannels: (workspaceId: string) => Promise<void>;
   fetchMembers: (workspaceId: string) => Promise<void>;
   fetchDmThreads: (workspaceId: string) => Promise<void>;
+  fetchSettings: (workspaceId: string) => Promise<void>;
+  setTaskUpdateStatuses: (statuses: StatusConfig[]) => void;
   addChannel: (channel: Channel) => void;
   updateChannel: (channel: Partial<Channel> & { id: string }) => void;
   addDmThread: (thread: DmThread) => void;
@@ -32,6 +41,7 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   channels: [],
   dmThreads: [],
   members: [],
+  taskUpdateStatuses: DEFAULT_STATUSES,
   role: null,
   isAdmin: (userId: string) => {
     const s = get();
@@ -41,16 +51,11 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isInitialized: false,
 
   setCurrentWorkspace: async (workspace: Workspace) => {
-    // ── Reset all workspace-scoped state before loading the new one ──────────
-    // Import stores lazily to avoid circular deps
     const { default: useBoardStore }  = await import('./boardStore');
     const { default: useUIStore }     = await import('./uiStore');
     const { default: useNotifStore }  = await import('./notificationStore');
 
-    // Clear board / task drawer
     useBoardStore.setState({ columns: [], boards: [], selectedTask: null });
-
-    // Clear open panels, unread counts, and any open modals
     useUIStore.setState({
       activeSidebar: null,
       channelUnread: {},
@@ -59,21 +64,16 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       showCreateBoard: false,
       showInvite: false,
     });
-
-    // Clear notifications (will be re-fetched by AppLayout)
     useNotifStore.setState({ notifications: [] });
+    set({ role: null, taskUpdateStatuses: DEFAULT_STATUSES });
 
-    // Reset role until the new workspace's members are loaded
-    set({ role: null });
-
-    // Switch workspace and load its data
     localStorage.setItem('fw_workspace', JSON.stringify(workspace));
     set({ currentWorkspace: workspace, channels: [], dmThreads: [], members: [] });
     await get().fetchChannels(workspace.id);
     await get().fetchMembers(workspace.id);
     await get().fetchDmThreads(workspace.id);
+    await get().fetchSettings(workspace.id);
   },
-
 
   fetchWorkspaces: async () => {
     const { data } = await client.get<Workspace[]>('/api/workspaces');
@@ -89,7 +89,6 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   fetchMembers: async (workspaceId: string) => {
     const { data } = await client.get<Member[]>(`/api/workspaces/${workspaceId}/members`);
     set({ members: data });
-    // Derive the current user's role in this workspace
     const { default: useAuthStore } = await import('./authStore');
     const userId = useAuthStore.getState().user?.id;
     if (userId) {
@@ -102,6 +101,19 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const { data } = await client.get<DmThread[]>(`/api/dms/threads/${workspaceId}`);
     set({ dmThreads: data });
   },
+
+  fetchSettings: async (workspaceId: string) => {
+    try {
+      const { data } = await client.get<{ task_update_statuses: StatusConfig[] }>(
+        `/api/workspaces/${workspaceId}/settings`
+      );
+      if (data.task_update_statuses?.length > 0) {
+        set({ taskUpdateStatuses: data.task_update_statuses });
+      }
+    } catch { /* keep defaults on error */ }
+  },
+
+  setTaskUpdateStatuses: (statuses) => set({ taskUpdateStatuses: statuses }),
 
   addChannel: (channel: Channel) => set((s) => {
     if (s.channels.some(c => c.id === channel.id)) return s;

@@ -46,6 +46,11 @@ export async function initDb(): Promise<void> {
       reason     TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )`;
+    await sql`CREATE TABLE IF NOT EXISTS workspace_settings (
+      workspace_id TEXT PRIMARY KEY,
+      task_update_statuses TEXT NOT NULL DEFAULT '[]',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {
     console.error('❌ Database connection failed:', err);

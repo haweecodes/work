@@ -9,9 +9,10 @@ import Sidebar from '../components/Sidebar/Sidebar';
 import PriorityAlertBanner from '../components/PriorityAlertBanner';
 import RightSidebarPanel from '../components/RightSidebarPanel';
 
-const InviteModal      = lazy(() => import('../components/InviteModal'));
-const CreateBoardModal = lazy(() => import('../components/CreateBoardModal'));
-const SearchModal      = lazy(() => import('../components/SearchModal'));
+const InviteModal             = lazy(() => import('../components/InviteModal'));
+const CreateBoardModal        = lazy(() => import('../components/CreateBoardModal'));
+const SearchModal             = lazy(() => import('../components/SearchModal'));
+const WorkspaceSettingsModal  = lazy(() => import('../components/WorkspaceSettingsModal'));
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ export default function AppLayout() {
   const { fetchNotifications } = useNotificationStore();
   const { fetchBoards } = useBoardStore();
   const selectedTask = useBoardStore(s => s.selectedTask);
-  const { showInvite, closeInvite, showCreateBoard, closeCreateBoard, closeSidebar } = useUIStore();
+  const { showInvite, closeInvite, showCreateBoard, closeCreateBoard, closeSidebar, showSettings, closeSettings } = useUIStore();
 
   // When a task is selected, close any other open sidebar
   useEffect(() => {
@@ -140,6 +141,11 @@ export default function AppLayout() {
       {showCreateBoard && (
         <Suspense fallback={null}>
           <CreateBoardModal onClose={closeCreateBoard} />
+        </Suspense>
+      )}
+      {showSettings && (
+        <Suspense fallback={null}>
+          <WorkspaceSettingsModal onClose={closeSettings} />
         </Suspense>
       )}
       {showSearch && (

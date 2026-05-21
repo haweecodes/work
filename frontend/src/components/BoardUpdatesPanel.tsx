@@ -7,20 +7,9 @@ import useBoardStore from '../store/boardStore';
 import SocketContext from '../context/SocketContext';
 import type { Column, Task, TaskUpdateRequest } from '../types';
 
-const STATUS_LABEL: Record<string, string> = {
-  on_track:  'On Track',
-  delayed:   'Delayed',
-  finished:  'Finished',
-  cancelled: 'Cancelled',
-  pending:   'Pending…',
-};
-const STATUS_COLOR: Record<string, string> = {
-  on_track:  'var(--ink)',
-  delayed:   '#C47B2A',
-  finished:  'var(--ink)',
-  cancelled: 'var(--faint)',
-  pending:   'var(--faint)',
-};
+// Fallback for 'pending' (not a user-choosable status, always shown for unanswered requests)
+const PENDING_LABEL = 'Pending…';
+const PENDING_COLOR = 'var(--faint)';
 
 const SCOPE_LABEL: Record<string, string> = {
   board:  'Whole board',
@@ -36,8 +25,12 @@ interface Props {
 
 export default function BoardUpdatesPanel({ boardId, onClose, canRequest }: Props) {
   const user = useAuthStore(s => s.user);
-  const { currentWorkspace } = useWorkspaceStore();
+  const { currentWorkspace, taskUpdateStatuses } = useWorkspaceStore();
   const { columns } = useBoardStore();
+
+  // Build lookup maps from workspace-configured statuses
+  const statusLabel = Object.fromEntries(taskUpdateStatuses.map(s => [s.value, s.label]));
+  const statusColor = Object.fromEntries(taskUpdateStatuses.map(s => [s.value, s.color]));
   const socketRef = useContext(SocketContext);
 
   const [requests, setRequests] = useState<TaskUpdateRequest[]>([]);
@@ -184,7 +177,7 @@ export default function BoardUpdatesPanel({ boardId, onClose, canRequest }: Prop
               {req.responses.map((resp, i) => (
                 <div key={`${resp.task_id}-${resp.user_id}-${i}`}
                   className="flex items-baseline justify-between gap-3"
-                  style={{ borderLeft: `2px solid ${STATUS_COLOR[resp.status] ?? 'var(--rule)'}`, paddingLeft: 8 }}>
+                  style={{ borderLeft: `2px solid ${statusColor[resp.status] ?? PENDING_COLOR}`, paddingLeft: 8 }}>
                   <div className="flex-1 min-w-0">
                     <span style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--muted)', marginRight: 6 }}>
                       {resp.task_key}
@@ -196,8 +189,8 @@ export default function BoardUpdatesPanel({ boardId, onClose, canRequest }: Prop
                       </p>
                     )}
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: STATUS_COLOR[resp.status], flexShrink: 0 }}>
-                    {resp.status === 'finished' ? '✓ ' : ''}{STATUS_LABEL[resp.status]}
+                  <span style={{ fontSize: 11, fontWeight: 500, color: statusColor[resp.status] ?? PENDING_COLOR, flexShrink: 0 }}>
+                    {statusLabel[resp.status] ?? resp.status}
                   </span>
                 </div>
               ))}

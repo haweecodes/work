@@ -104,6 +104,8 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const fetchBoards         = useBoardStore(s => s.fetchBoards);
   const openCreateBoard     = useUIStore(s => s.openCreateBoard);
   const openInvite          = useUIStore(s => s.openInvite);
+  const openSettings        = useUIStore(s => s.openSettings);
+  const isAdmin             = useWorkspaceStore(s => s.isAdmin);
   const channelUnread       = useUIStore(s => s.channelUnread);
   const dmUnread            = useUIStore(s => s.dmUnread);
   const activeSidebar       = useUIStore(s => s.activeSidebar);
@@ -355,6 +357,19 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         >
           Invite teammates
         </button>
+
+        {/* Settings — admins only */}
+        {user && isAdmin(user.id) && (
+          <button
+            onClick={() => openSettings()}
+            className="w-full text-left py-1"
+            style={{ fontSize: 13, color: 'var(--muted)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+          >
+            Settings
+          </button>
+        )}
 
         {/* Notifications */}
         <div className="relative">

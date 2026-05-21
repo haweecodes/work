@@ -20,6 +20,7 @@ interface UIState {
 
   showCreateBoard: boolean;
   showInvite: boolean;
+  showSettings: boolean;
   channelUnread: Record<string, number>;
   dmUnread: Record<string, number>;
   threadUnread: Record<string, number>;
@@ -27,6 +28,8 @@ interface UIState {
   closeCreateBoard: () => void;
   openInvite: () => void;
   closeInvite: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
   incrementChannelUnread: (id: string) => void;
   incrementDmUnread: (id: string) => void;
   incrementThreadUnread: (id: string) => void;
@@ -46,6 +49,7 @@ const useUIStore = create<UIState>((set) => ({
 
   showCreateBoard: false,
   showInvite: false,
+  showSettings: false,
   channelUnread: {},
   dmUnread: {},
   threadUnread: {},
@@ -53,6 +57,8 @@ const useUIStore = create<UIState>((set) => ({
   closeCreateBoard: () => set({ showCreateBoard: false }),
   openInvite: () => set({ showInvite: true }),
   closeInvite: () => set({ showInvite: false }),
+  openSettings: () => set({ showSettings: true }),
+  closeSettings: () => set({ showSettings: false }),
   incrementChannelUnread: (id) =>
     set((s) => ({ channelUnread: { ...s.channelUnread, [id]: (s.channelUnread[id] || 0) + 1 } })),
   incrementDmUnread: (id) =>
