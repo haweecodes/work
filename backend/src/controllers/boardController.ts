@@ -36,10 +36,10 @@ export async function rename(req: Request, res: Response) {
     const { name } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
 
-    const board = await boardService.getBoardById(req.params.id, req.workspaceId!);
+    const board = await boardService.getBoardById(String(req.params.id), req.workspaceId!);
     if (!board) return res.status(404).json({ error: 'Board not found' });
 
-    const updated = await boardService.updateBoardName(req.params.id, name.trim());
+    const updated = await boardService.updateBoardName(String(req.params.id), name.trim());
     res.json(updated);
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -47,10 +47,10 @@ export async function rename(req: Request, res: Response) {
 }
 
 export async function getColumns(req: Request, res: Response) {
-  const board = await boardService.getBoardById(req.params.boardId, req.workspaceId!);
+  const board = await boardService.getBoardById(String(req.params.boardId), req.workspaceId!);
   if (!board) return res.status(404).json({ error: 'Board not found' });
 
-  const columns = await boardService.getColumnsWithTasks(req.params.boardId);
+  const columns = await boardService.getColumnsWithTasks(String(req.params.boardId));
   res.json(columns);
 }
 
@@ -59,10 +59,10 @@ export async function addColumn(req: Request, res: Response) {
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'title required' });
 
-    const board = await boardService.getBoardById(req.params.boardId, req.workspaceId!);
+    const board = await boardService.getBoardById(String(req.params.boardId), req.workspaceId!);
     if (!board) return res.status(404).json({ error: 'Board not found' });
 
-    const col = await boardService.addColumn(req.params.boardId, title);
+    const col = await boardService.addColumn(String(req.params.boardId), title);
     res.status(201).json(col);
   } catch {
     res.status(500).json({ error: 'Server error' });
