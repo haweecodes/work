@@ -54,7 +54,7 @@ export default function AppLayout() {
     setSelectedTask(null);
     const { activeSidebar, closeSidebar } = useUIStore.getState();
     const type = activeSidebar?.type;
-    if (type === 'thread' || type === 'tasks' || type === 'pipeline') {
+    if (type === 'thread' || type === 'tasks' || type === 'pipeline' || type === 'board-updates') {
       closeSidebar();
     }
   }, [location.pathname]);

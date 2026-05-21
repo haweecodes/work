@@ -1,14 +1,14 @@
-import { all, get } from '../db';
+import { sql, inArray } from 'drizzle-orm';
+import { db, message_reactions, task_assignees, columns, messages, users } from '../db';
+import { eq } from 'drizzle-orm';
 
-/** Generate an IN-clause placeholder string: `?, ?, ?` */
-export const ph = (arr: any[]) => arr.map(() => '?').join(', ');
-
-/** Fetch and aggregate reactions for a single message (used in single-message responses). */
+/** Fetch and aggregate reactions for a single message. */
 export async function getReactionsForMessage(messageId: string) {
-  const rows = await all<{ emoji: string; user_id: string }>(
-    `SELECT emoji, user_id FROM message_reactions WHERE message_id = ? ORDER BY created_at ASC`,
-    [messageId]
-  );
+  const rows = await db.select({ emoji: message_reactions.emoji, user_id: message_reactions.user_id })
+    .from(message_reactions)
+    .where(eq(message_reactions.message_id, messageId))
+    .orderBy(message_reactions.created_at);
+
   const map: Record<string, string[]> = {};
   for (const r of rows) {
     if (!map[r.emoji]) map[r.emoji] = [];
@@ -17,18 +17,18 @@ export async function getReactionsForMessage(messageId: string) {
   return Object.entries(map).map(([emoji, users]) => ({ emoji, count: users.length, users }));
 }
 
-/** Fetch a shared-message preview for a single share (used in share-message response). */
+/** Fetch a shared-message preview. */
 export async function getSharedMessagePreview(sharedMessageId: string | null | undefined) {
   if (!sharedMessageId) return null;
-  const sm = await get<any>(
-    `SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
-            u.name as sender_name, u.avatar_url as sender_avatar, c.name as channel_name
-     FROM messages m
-     LEFT JOIN users u ON u.id = m.sender_id
-     LEFT JOIN channels c ON c.id = m.channel_id
-     WHERE m.id = ?`,
-    [sharedMessageId]
-  );
+  const rows = await db.execute(sql`
+    SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
+           u.name as sender_name, u.avatar_url as sender_avatar, c.name as channel_name
+    FROM messages m
+    LEFT JOIN users u ON u.id = m.sender_id
+    LEFT JOIN channels c ON c.id = m.channel_id
+    WHERE m.id = ${sharedMessageId}
+  `);
+  const sm = ((rows.rows ?? rows) as any[])[0];
   if (!sm) return null;
   return {
     id: sm.id, content: sm.content, created_at: sm.created_at,
@@ -40,9 +40,7 @@ export async function getSharedMessagePreview(sharedMessageId: string | null | u
 
 /**
  * Batch-enrich a list of raw message rows.
- * Fires 4 queries regardless of list length instead of N×4.
- * Works for both channel and DM messages — nullable fields (channel_id,
- * dm_thread_id, edited_at) are always included and will be null when absent.
+ * Fires 4 queries regardless of list length.
  */
 export async function enrichMessages(rows: any[]): Promise<any[]> {
   if (rows.length === 0) return [];
@@ -52,53 +50,58 @@ export async function enrichMessages(rows: any[]): Promise<any[]> {
   const colIds    = [...new Set(rows.filter(m => m.task_column_id).map(m => m.task_column_id))];
   const sharedIds = [...new Set(rows.filter(m => m.shared_message_id).map(m => m.shared_message_id))];
 
-  // 1. All reactions
-  const allReactions = await all<{ message_id: string; emoji: string; user_id: string }>(
-    `SELECT message_id, emoji, user_id FROM message_reactions WHERE message_id IN (${ph(msgIds)}) ORDER BY created_at ASC`,
-    msgIds
-  );
+  // 1. Reactions
+  const allReactions = msgIds.length > 0
+    ? await db.select({ message_id: message_reactions.message_id, emoji: message_reactions.emoji, user_id: message_reactions.user_id })
+        .from(message_reactions)
+        .where(inArray(message_reactions.message_id, msgIds))
+        .orderBy(message_reactions.created_at)
+    : [];
+
   const reactionsByMsg: Record<string, Array<{ emoji: string; user_id: string }>> = {};
   for (const r of allReactions) {
     if (!reactionsByMsg[r.message_id]) reactionsByMsg[r.message_id] = [];
     reactionsByMsg[r.message_id].push(r);
   }
 
-  // 2. All task assignees
+  // 2. Task assignees
   const assigneesByTask: Record<string, any[]> = {};
   if (taskIds.length > 0) {
-    const assigneeRows = await all<any>(
-      `SELECT ta.task_id, u.id, u.name, u.avatar_url FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id IN (${ph(taskIds)})`,
-      taskIds
-    );
+    const assigneeRows = await db.select({
+      task_id: task_assignees.task_id,
+      id: users.id, name: users.name, avatar_url: users.avatar_url,
+    })
+      .from(task_assignees)
+      .innerJoin(users, eq(task_assignees.user_id, users.id))
+      .where(inArray(task_assignees.task_id, taskIds));
+
     for (const r of assigneeRows) {
       if (!assigneesByTask[r.task_id]) assigneesByTask[r.task_id] = [];
       assigneesByTask[r.task_id].push({ id: r.id, name: r.name, avatar_url: r.avatar_url });
     }
   }
 
-  // 3. All column titles for linked tasks
+  // 3. Column titles
   const titleByCol: Record<string, string> = {};
   if (colIds.length > 0) {
-    const cols = await all<{ id: string; title: string }>(
-      `SELECT id, title FROM columns WHERE id IN (${ph(colIds)})`,
-      colIds
-    );
+    const cols = await db.select({ id: columns.id, title: columns.title })
+      .from(columns)
+      .where(inArray(columns.id, colIds));
     for (const c of cols) titleByCol[c.id] = c.title;
   }
 
-  // 4. All shared message previews
+  // 4. Shared message previews
   const previewById: Record<string, any> = {};
   if (sharedIds.length > 0) {
-    const previews = await all<any>(
-      `SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
-              u.name as sender_name, u.avatar_url as sender_avatar, c.name as channel_name
-       FROM messages m
-       LEFT JOIN users u ON u.id = m.sender_id
-       LEFT JOIN channels c ON c.id = m.channel_id
-       WHERE m.id IN (${ph(sharedIds)})`,
-      sharedIds
-    );
-    for (const p of previews) {
+    const previews = await db.execute(sql`
+      SELECT m.id, m.content, m.created_at, m.channel_id, m.dm_thread_id, m.parent_message_id,
+             u.name as sender_name, u.avatar_url as sender_avatar, c.name as channel_name
+      FROM messages m
+      LEFT JOIN users u ON u.id = m.sender_id
+      LEFT JOIN channels c ON c.id = m.channel_id
+      WHERE m.id = ANY(${sharedIds}::text[])
+    `);
+    for (const p of ((previews.rows ?? previews) as any[])) {
       previewById[p.id] = {
         id: p.id, content: p.content, created_at: p.created_at,
         sender_name: p.sender_name, sender_avatar: p.sender_avatar,

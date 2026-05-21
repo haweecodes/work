@@ -57,6 +57,14 @@ export default function RightSidebarPanel() {
 
   return (
     <>
+      {/* Transparent backdrop — only for non-task panels so clicking away closes them */}
+      {activeSidebar && (
+        <div
+          className="fixed inset-0"
+          style={{ zIndex: 199 }}
+          onClick={closeSidebar}
+        />
+      )}
       <div className="animate-slide-in" style={SIDEBAR_STYLE}>
         {showTask && (
           <Suspense fallback={SKELETON}>

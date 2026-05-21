@@ -52,12 +52,15 @@ export default function BoardUpdatesPanel({ boardId, onClose, canRequest }: Prop
 
   const allTasks: Task[] = columns.flatMap(c => c.tasks ?? []);
 
-  useEffect(() => {
+  const fetchHistory = () => {
     setLoading(true);
     client.get<TaskUpdateRequest[]>(`/api/task-updates/${boardId}`)
       .then(({ data }) => setRequests(data))
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, [boardId]);
+  };
+
+  useEffect(() => { fetchHistory(); }, [boardId]);
 
   // Live socket updates
   useEffect(() => {
@@ -87,7 +90,8 @@ export default function BoardUpdatesPanel({ boardId, onClose, canRequest }: Prop
         column_id: scope === 'column' ? selectedColumn : undefined,
         task_id:   scope === 'task'   ? selectedTask   : undefined,
       });
-      // The socket event will prepend the new request to the list
+      // Refresh from API as fallback in case socket event is missed
+      fetchHistory();
     } catch (err: any) {
       setSendError(err.response?.data?.error ?? 'Failed to send request');
     } finally {

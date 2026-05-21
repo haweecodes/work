@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import { neon } from '@neondatabase/serverless';
 
+// Re-export Drizzle instance and schema so `import { db, users, ... } from '../db'` works
+export { db } from './db/index';
+export * from './db/schema';
+
 const sql = neon(process.env.DATABASE_URL!);
 
 /** Convert SQLite-style ? placeholders to PostgreSQL $1, $2, … */

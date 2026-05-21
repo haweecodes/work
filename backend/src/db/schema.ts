@@ -59,6 +59,7 @@ export const boards = pgTable('boards', {
   name:          text('name').notNull(),
   project_key:   text('project_key').notNull(),
   task_sequence: integer('task_sequence').default(0),
+  created_by:    text('created_by').references(() => users.id),
   created_at:    timestamp('created_at').defaultNow(),
 });
 
@@ -78,7 +79,7 @@ export const tasks = pgTable('tasks', {
   description:       text('description'),
   priority:          text('priority').default('medium'),
   due_date:          timestamp('due_date'),
-  created_by:        text('created_by').notNull().references(() => users.id),
+  created_by:        text('created_by').references(() => users.id),
   linked_message_id: text('linked_message_id'),
   parent_task_id:    text('parent_task_id'),
   position:          integer('position').notNull(),
@@ -97,6 +98,9 @@ export const messages = pgTable('messages', {
   parent_message_id: text('parent_message_id'),
   shared_message_id: text('shared_message_id'),
   is_system:         integer('is_system').default(0),
+  edited_at:         timestamp('edited_at'),
+  importance:        text('importance').default('normal'),
+  mention_priorities: text('mention_priorities'),
   created_at:        timestamp('created_at').defaultNow(),
 });
 
@@ -113,6 +117,12 @@ export const notifications = pgTable('notifications', {
   reference_type: text('reference_type'),
   message:        text('message'),
   is_read:        integer('is_read').default(0),
+  is_resolved:    integer('is_resolved').default(0),
+  sender_name:    text('sender_name'),
+  sender_avatar:  text('sender_avatar'),
+  workspace_id:   text('workspace_id'),
+  priority:       text('priority'),
+  extra_id:       text('extra_id'),
   created_at:     timestamp('created_at').defaultNow(),
 });
 
@@ -122,3 +132,48 @@ export const message_reactions = pgTable('message_reactions', {
   emoji:      text('emoji').notNull(),
   created_at: timestamp('created_at').defaultNow(),
 }, (t) => [primaryKey({ columns: [t.message_id, t.user_id, t.emoji] })]);
+
+export const task_update_requests = pgTable('task_update_requests', {
+  id:           text('id').primaryKey(),
+  board_id:     text('board_id').notNull().references(() => boards.id),
+  scope:        text('scope').notNull(),
+  task_id:      text('task_id'),
+  column_id:    text('column_id'),
+  requested_by: text('requested_by').notNull().references(() => users.id),
+  workspace_id: text('workspace_id').notNull().references(() => workspaces.id),
+  created_at:   timestamp('created_at').defaultNow(),
+});
+
+export const task_update_responses = pgTable('task_update_responses', {
+  id:         text('id').primaryKey(),
+  request_id: text('request_id').notNull().references(() => task_update_requests.id),
+  task_id:    text('task_id').notNull().references(() => tasks.id),
+  user_id:    text('user_id').notNull().references(() => users.id),
+  status:     text('status').notNull(),
+  reason:     text('reason'),
+  created_at: timestamp('created_at').defaultNow(),
+});
+
+// ── Inferred types (source of truth for the entire backend) ───────────────────
+
+export type User               = typeof users.$inferSelect;
+export type NewUser            = typeof users.$inferInsert;
+export type Workspace          = typeof workspaces.$inferSelect;
+export type NewWorkspace       = typeof workspaces.$inferInsert;
+export type WorkspaceMember    = typeof workspace_members.$inferSelect;
+export type Channel            = typeof channels.$inferSelect;
+export type NewChannel         = typeof channels.$inferInsert;
+export type Board              = typeof boards.$inferSelect;
+export type NewBoard           = typeof boards.$inferInsert;
+export type Column             = typeof columns.$inferSelect;
+export type NewColumn          = typeof columns.$inferInsert;
+export type Task               = typeof tasks.$inferSelect;
+export type NewTask            = typeof tasks.$inferInsert;
+export type Message            = typeof messages.$inferSelect;
+export type NewMessage         = typeof messages.$inferInsert;
+export type Notification       = typeof notifications.$inferSelect;
+export type NewNotification    = typeof notifications.$inferInsert;
+export type TaskUpdateRequest  = typeof task_update_requests.$inferSelect;
+export type NewTaskUpdateRequest = typeof task_update_requests.$inferInsert;
+export type TaskUpdateResponse = typeof task_update_responses.$inferSelect;
+export type NewTaskUpdateResponse = typeof task_update_responses.$inferInsert;
