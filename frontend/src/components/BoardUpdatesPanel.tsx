@@ -25,8 +25,9 @@ interface Props {
 
 export default function BoardUpdatesPanel({ boardId, onClose, canRequest }: Props) {
   const user = useAuthStore(s => s.user);
-  const { currentWorkspace, taskUpdateStatuses } = useWorkspaceStore();
-  const { columns } = useBoardStore();
+  const currentWorkspace   = useWorkspaceStore(s => s.currentWorkspace);
+  const taskUpdateStatuses = useWorkspaceStore(s => s.taskUpdateStatuses);
+  const columns            = useBoardStore(s => s.columns);
 
   // Build lookup maps from workspace-configured statuses
   const statusLabel = Object.fromEntries(taskUpdateStatuses.map(s => [s.value, s.label]));

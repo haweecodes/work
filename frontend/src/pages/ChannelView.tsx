@@ -28,18 +28,21 @@ export default function ChannelView() {
   const fetchColumns = useBoardStore(s => s.fetchColumns);
 
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const channel = channels.find(c => c.id === channelId);
 
   const {
-    messages, loading, content, typingUsers,
+    messages, loading, hasMore, loadingMore, content, typingUsers,
     handleContentChange, handleSend,
     handleMsgUpdated, handleMsgDeleted, handleReactionToggle, handleTaskLinked,
+    loadMore,
   } = useChatMessages({
     type: 'channel',
     id: channelId,
     user,
     endRef,
+    scrollRef,
     onClearUnread: () => channelId && clearChannelUnread(channelId),
     highlightId: searchParams.get('highlight'),
   });
@@ -185,7 +188,7 @@ export default function ChannelView() {
         </div>
 
         {/* Message list */}
-        <div className="flex-1 overflow-y-auto space-y-0" style={{ padding: '22px 0 8px' }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-0" style={{ padding: '22px 0 8px' }}>
           {loading && <MessageListSkeleton count={7} />}
           {!loading && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-10">
@@ -198,6 +201,9 @@ export default function ChannelView() {
           <MessageList
             messages={messages}
             typingUsers={typingUsers}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
             onTaskLinked={handleTaskLinked}
             onMessageUpdated={handleMsgUpdated}
             onMessageDeleted={handleMsgDeleted}

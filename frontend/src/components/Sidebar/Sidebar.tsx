@@ -1,5 +1,4 @@
 import { useState, useMemo, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { Hash, Lock, MessageCircle, Kanban, LogOut, type LucideIcon } from 'lucide-react';
 import { useNavigate, NavLink } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
@@ -7,7 +6,6 @@ import useWorkspaceStore from '../../store/workspaceStore';
 import useBoardStore from '../../store/boardStore';
 import useUIStore from '../../store/uiStore';
 import useNotificationStore from '../../store/notificationStore';
-import NotificationPanel from '../NotificationPanel';
 import client from '../../api/client';
 import type { Workspace, Channel, DmThread } from '../../types';
 
@@ -91,7 +89,8 @@ function NavItem({ to, label, title, unread = 0, icon: Icon }: {
 
 export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const user   = useAuthStore(s => s.user);
+  const logout = useAuthStore(s => s.logout);
   const workspaces          = useWorkspaceStore(s => s.workspaces);
   const currentWorkspace    = useWorkspaceStore(s => s.currentWorkspace);
   const channels            = useWorkspaceStore(s => s.channels);
@@ -112,6 +111,9 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const openSidebar         = useUIStore(s => s.openSidebar);
   const closeSidebar        = useUIStore(s => s.closeSidebar);
   const notifUnread         = useNotificationStore(s => s.unreadCount);
+  const allNotifications    = useNotificationStore(s => s.notifications);
+  const actionUnread = allNotifications.filter(n => !n.is_read && (n.type === 'mention' || n.type === 'task_update_request' || n.type === 'task_due')).length;
+  const infoUnread   = notifUnread - actionUnread;
   const showNotif = activeSidebar?.type === 'notifications';
   const [showWorkspaces, setShowWorkspaces] = useState(false);
   const [addingChannel, setAddingChannel] = useState(false);
@@ -381,17 +383,30 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
             onMouseLeave={e => (e.currentTarget.style.color = notifUnread > 0 ? 'var(--ink)' : 'var(--muted)')}
           >
             <span>Notifications</span>
-            {notifUnread > 0 && (
-              <span style={{
-                fontSize: 10, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
-                color: 'var(--paper)', background: 'var(--danger)',
-                minWidth: 18, height: 18,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                padding: '0 5px',
-              }}>
-                {notifUnread > 9 ? '9+' : notifUnread}
-              </span>
-            )}
+            <div className="flex items-center gap-1 ml-auto">
+              {actionUnread > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--paper)', background: 'var(--danger)',
+                  minWidth: 18, height: 18,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 5px',
+                }}>
+                  {actionUnread > 9 ? '9+' : actionUnread}
+                </span>
+              )}
+              {infoUnread > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--paper)', background: 'var(--ink-2)',
+                  minWidth: 18, height: 18,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 5px',
+                }}>
+                  {infoUnread > 9 ? '9+' : infoUnread}
+                </span>
+              )}
+            </div>
           </button>
         </div>
 

@@ -6,6 +6,7 @@ export type SidebarView =
   | { type: 'board-updates'; boardId: string; canRequest: boolean }
   | { type: 'thread'; message: Message; channelId?: string; dmThreadId?: string }
   | { type: 'tasks' }
+  | { type: 'task-updates' }
   | null;
 
 interface UIState {

@@ -35,8 +35,10 @@ export async function createThread(req: Request, res: Response) {
 }
 
 export async function getMessages(req: Request, res: Response) {
-  const messages = await dmService.getMessages(String(req.params.threadId));
-  res.json(messages);
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const before = req.query.before ? String(req.query.before) : undefined;
+  const result = await dmService.getMessages(String(req.params.threadId), limit, before);
+  res.json(result);
 }
 
 export async function sendMessage(req: Request, res: Response) {

@@ -17,8 +17,8 @@ interface CreateBoardModalProps {
 
 export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
   const navigate = useNavigate();
-  const { currentWorkspace } = useWorkspaceStore();
-  const { fetchBoards } = useBoardStore();
+  const currentWorkspace = useWorkspaceStore(s => s.currentWorkspace);
+  const fetchBoards      = useBoardStore(s => s.fetchBoards);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

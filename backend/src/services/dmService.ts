@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { db, dm_threads, dm_participants, messages, users, workspace_members, type NewMessage } from '../db';
 import { enrichMessages } from '../lib/messageEnrich';
 
@@ -9,20 +9,41 @@ export async function getDmThreads(workspaceId: string, userId: string) {
     .where(and(eq(dm_participants.user_id, userId), eq(dm_threads.workspace_id, workspaceId)))
     .then(rows => rows.map(r => r.dm_threads));
 
-  return Promise.all(threads.map(async t => {
-    const participants = await db
-      .select({ id: users.id, name: users.name, avatar_url: users.avatar_url })
-      .from(dm_participants)
-      .innerJoin(users, eq(dm_participants.user_id, users.id))
-      .where(eq(dm_participants.thread_id, t.id));
+  if (threads.length === 0) return [];
 
-    const lastMsg = await db.query.messages.findFirst({
-      where: and(eq(messages.dm_thread_id, t.id), sql`${messages.parent_message_id} IS NULL`),
-      orderBy: sql`${messages.created_at} DESC`,
-      columns: { content: true, created_at: true },
-    });
+  const threadIds = threads.map(t => t.id);
 
-    return { ...t, participants, last_message: lastMsg ?? null };
+  // Batch-fetch all participants in one query
+  const allParticipants = await db
+    .select({ thread_id: dm_participants.thread_id, id: users.id, name: users.name, avatar_url: users.avatar_url })
+    .from(dm_participants)
+    .innerJoin(users, eq(dm_participants.user_id, users.id))
+    .where(inArray(dm_participants.thread_id, threadIds));
+
+  const participantsByThread: Record<string, Array<{ id: string; name: string; avatar_url: string | null }>> = {};
+  for (const p of allParticipants) {
+    if (!participantsByThread[p.thread_id]) participantsByThread[p.thread_id] = [];
+    participantsByThread[p.thread_id].push({ id: p.id, name: p.name, avatar_url: p.avatar_url });
+  }
+
+  // Batch-fetch last message per thread using DISTINCT ON.
+  // Use inArray() inside the sql template — passing a JS array directly causes
+  // "cannot cast type record to text[]" with the Neon driver.
+  const lastMsgRows = await db.execute(sql`
+    SELECT DISTINCT ON (dm_thread_id) dm_thread_id, content, created_at
+    FROM messages
+    WHERE ${inArray(messages.dm_thread_id, threadIds)} AND parent_message_id IS NULL
+    ORDER BY dm_thread_id, created_at DESC
+  `);
+  const lastMsgByThread: Record<string, { content: string; created_at: string }> = {};
+  for (const row of ((lastMsgRows.rows ?? lastMsgRows) as any[])) {
+    lastMsgByThread[row.dm_thread_id] = { content: row.content, created_at: row.created_at };
+  }
+
+  return threads.map(t => ({
+    ...t,
+    participants: participantsByThread[t.id] ?? [],
+    last_message: lastMsgByThread[t.id] ?? null,
   }));
 }
 
@@ -62,7 +83,8 @@ export async function getThreadParticipants(threadId: string) {
     .where(eq(dm_participants.thread_id, threadId));
 }
 
-export async function getMessages(threadId: string) {
+export async function getMessages(threadId: string, limit = 50, before?: string) {
+  const beforeFilter = before ? sql`AND m.created_at < ${before}::timestamptz` : sql``;
   const rows = await db.execute(sql`
     SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
            t.id as task_id, t.title as task_title, t.priority as task_priority,
@@ -71,9 +93,14 @@ export async function getMessages(threadId: string) {
     FROM messages m LEFT JOIN users u ON u.id = m.sender_id
     LEFT JOIN tasks t ON t.id = m.linked_task_id
     WHERE m.dm_thread_id = ${threadId} AND m.parent_message_id IS NULL
-    ORDER BY m.created_at ASC LIMIT 200
+    ${beforeFilter}
+    ORDER BY m.created_at DESC
+    LIMIT ${limit + 1}
   `);
-  return enrichMessages((rows.rows ?? rows) as any[]);
+  const all = (rows.rows ?? rows) as any[];
+  const hasMore = all.length > limit;
+  const msgs = await enrichMessages(hasMore ? all.slice(0, limit) : all);
+  return { messages: msgs, hasMore };
 }
 
 export async function getThreadReplies(threadId: string, messageId: string) {
@@ -99,7 +126,7 @@ export async function getThreadReplies(threadId: string, messageId: string) {
              0 as reply_count
       FROM messages m LEFT JOIN users u ON u.id = m.sender_id
       LEFT JOIN tasks t ON t.id = m.linked_task_id
-      WHERE m.dm_thread_id = ${threadId} AND m.parent_message_id = ANY(${depth1Ids}::text[])
+      WHERE m.dm_thread_id = ${threadId} AND ${inArray(messages.parent_message_id, depth1Ids)}
       ORDER BY m.created_at ASC
     `);
     depth2 = (depth2Rows.rows ?? depth2Rows) as any[];

@@ -18,7 +18,10 @@ function toValue(label: string) {
 }
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
-  const { currentWorkspace, taskUpdateStatuses, setTaskUpdateStatuses, isAdmin } = useWorkspaceStore();
+  const currentWorkspace    = useWorkspaceStore(s => s.currentWorkspace);
+  const taskUpdateStatuses  = useWorkspaceStore(s => s.taskUpdateStatuses);
+  const setTaskUpdateStatuses = useWorkspaceStore(s => s.setTaskUpdateStatuses);
+  const isAdmin             = useWorkspaceStore(s => s.isAdmin);
   const user = useAuthStore(s => s.user);
   const canEdit = !!user && isAdmin(user.id);
 

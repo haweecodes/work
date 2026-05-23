@@ -30,16 +30,23 @@ export async function requestUpdate(req: Request, res: Response) {
     const request = await svc.createRequest(board_id, scope, req.user.id, req.workspaceId!, task_id, column_id);
     const requesterName = await svc.getUserName(req.user.id);
 
-    const notifiedUsers = new Set<string>();
+    // Group tasks per assignee, then send one notification per user
+    const userTasks = new Map<string, typeof tasks>();
     for (const task of tasks) {
       const assignees = await svc.getAssigneesForTask(task.id);
       for (const { user_id } of assignees) {
-        if (user_id === req.user.id || notifiedUsers.has(`${task.id}:${user_id}`)) continue;
-        notifiedUsers.add(`${task.id}:${user_id}`);
-        const notifMsg = `${requesterName} is asking for an update on "${task.title}"`;
-        const notifId = await svc.createUpdateRequestNotification(user_id, 'task_update_request', task.id, notifMsg, request.id, req.workspaceId!);
-        if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'task_update_request', message: notifMsg, reference_id: task.id, extra_id: request.id });
+        if (user_id === req.user.id) continue;
+        if (!userTasks.has(user_id)) userTasks.set(user_id, []);
+        userTasks.get(user_id)!.push(task);
       }
+    }
+    for (const [user_id, userTaskList] of userTasks) {
+      const count = userTaskList.length;
+      const notifMsg = count === 1
+        ? `${requesterName} is asking for an update on "${userTaskList[0].title}"`
+        : `${requesterName} requested updates on ${count} tasks assigned to you`;
+      const notifId = await svc.createUpdateRequestNotification(user_id, 'task_update_request', request.id, notifMsg, null, req.workspaceId!);
+      if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'task_update_request', message: notifMsg, reference_id: request.id, extra_id: null });
     }
 
     const requestRow = { ...request, requester_name: requesterName, responses: [] };
@@ -99,8 +106,8 @@ export async function getHistory(req: Request, res: Response) {
 
 export async function getPending(req: Request, res: Response) {
   try {
-    const pending = await svc.getPendingForUser(req.user.id, req.workspaceId!);
-    res.json(pending);
+    const timeline = await svc.getMyUpdateTimeline(req.user.id, req.workspaceId!);
+    res.json(timeline);
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

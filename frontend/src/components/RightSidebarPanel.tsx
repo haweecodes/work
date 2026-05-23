@@ -5,6 +5,7 @@ import useBoardStore from '../store/boardStore';
 import useAuthStore from '../store/authStore';
 import NotificationPanel from './NotificationPanel';
 import BoardUpdatesPanel from './BoardUpdatesPanel';
+import TaskUpdatePanel from './TaskUpdatePanel';
 import TaskTray from './TaskTray';
 
 const TaskDetailPanel = lazy(() => import('./TaskDetailPanel'));
@@ -33,9 +34,14 @@ const SKELETON = (
 );
 
 export default function RightSidebarPanel() {
-  const { activeSidebar, closeSidebar, openShareModal, closeShareModal, shareMessage } = useUIStore();
-  const selectedTask = useBoardStore(s => s.selectedTask);
-  const { boards, columns } = useBoardStore();
+  const activeSidebar  = useUIStore(s => s.activeSidebar);
+  const closeSidebar   = useUIStore(s => s.closeSidebar);
+  const openShareModal = useUIStore(s => s.openShareModal);
+  const closeShareModal = useUIStore(s => s.closeShareModal);
+  const shareMessage   = useUIStore(s => s.shareMessage);
+  const selectedTask   = useBoardStore(s => s.selectedTask);
+  const boards         = useBoardStore(s => s.boards);
+  const columns        = useBoardStore(s => s.columns);
   const user = useAuthStore(s => s.user);
   const [, setSearchParams] = useSearchParams();
 
@@ -50,10 +56,11 @@ export default function RightSidebarPanel() {
   const showUpdates       = activeSidebar?.type === 'board-updates';
   const showThread        = activeSidebar?.type === 'thread';
   const showTasks         = activeSidebar?.type === 'tasks';
+  const showTaskUpdates   = activeSidebar?.type === 'task-updates';
   // Task detail shows only when no other panel has been explicitly opened.
-  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks;
+  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates;
 
-  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks) return null;
+  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates) return null;
 
   return (
     <>
@@ -103,7 +110,9 @@ export default function RightSidebarPanel() {
             onClose={closeSidebar}
           />
         )}
-
+        {showTaskUpdates && (
+          <TaskUpdatePanel onClose={closeSidebar} />
+        )}
       </div>
 
       {/* Global ShareModal — rendered outside the sidebar div so it stacks above it */}

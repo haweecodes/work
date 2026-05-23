@@ -268,11 +268,21 @@ const Column = memo(function Column({ col, onAddTask, onTaskSelect, doneColumnId
 export default function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { columns, fetchColumns, moveTaskLocally, updateTaskInColumn, boards, addColumn, selectedTask, setSelectedTask, updateBoardName } = useBoardStore();
+  const columns           = useBoardStore(s => s.columns);
+  const fetchColumns      = useBoardStore(s => s.fetchColumns);
+  const moveTaskLocally   = useBoardStore(s => s.moveTaskLocally);
+  const updateTaskInColumn = useBoardStore(s => s.updateTaskInColumn);
+  const boards            = useBoardStore(s => s.boards);
+  const addColumn         = useBoardStore(s => s.addColumn);
+  const selectedTask      = useBoardStore(s => s.selectedTask);
+  const setSelectedTask   = useBoardStore(s => s.setSelectedTask);
+  const updateBoardName   = useBoardStore(s => s.updateBoardName);
   const socketRef = useContext(SocketContext);
   const user = useAuthStore(s => s.user);
   const role = useWorkspaceStore(s => s.role);
-  const { activeSidebar, openSidebar, closeSidebar } = useUIStore();
+  const activeSidebar = useUIStore(s => s.activeSidebar);
+  const openSidebar   = useUIStore(s => s.openSidebar);
+  const closeSidebar  = useUIStore(s => s.closeSidebar);
   const showUpdatesPanel = activeSidebar?.type === 'board-updates' && activeSidebar.boardId === boardId;
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);

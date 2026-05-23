@@ -17,11 +17,19 @@ const WorkspaceSettingsModal  = lazy(() => import('../components/WorkspaceSettin
 export default function AppLayout() {
   const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
-  const { currentWorkspace, fetchWorkspaces, setCurrentWorkspace } = useWorkspaceStore();
-  const { fetchNotifications } = useNotificationStore();
-  const { fetchBoards } = useBoardStore();
-  const selectedTask = useBoardStore(s => s.selectedTask);
-  const { showInvite, closeInvite, showCreateBoard, closeCreateBoard, closeSidebar, showSettings, closeSettings } = useUIStore();
+  const currentWorkspace   = useWorkspaceStore(s => s.currentWorkspace);
+  const fetchWorkspaces    = useWorkspaceStore(s => s.fetchWorkspaces);
+  const setCurrentWorkspace = useWorkspaceStore(s => s.setCurrentWorkspace);
+  const fetchNotifications = useNotificationStore(s => s.fetchNotifications);
+  const fetchBoards        = useBoardStore(s => s.fetchBoards);
+  const selectedTask       = useBoardStore(s => s.selectedTask);
+  const showInvite         = useUIStore(s => s.showInvite);
+  const closeInvite        = useUIStore(s => s.closeInvite);
+  const showCreateBoard    = useUIStore(s => s.showCreateBoard);
+  const closeCreateBoard   = useUIStore(s => s.closeCreateBoard);
+  const closeSidebar       = useUIStore(s => s.closeSidebar);
+  const showSettings       = useUIStore(s => s.showSettings);
+  const closeSettings      = useUIStore(s => s.closeSettings);
 
   // When a task is selected, close any other open sidebar
   useEffect(() => {

@@ -21,8 +21,9 @@ interface CreateTaskModalProps {
 }
 
 export default function CreateTaskModal({ onClose, prefilledMessage, prefilledData, boardId, createInColumn }: CreateTaskModalProps) {
-  const { members } = useWorkspaceStore();
-  const { boards, columns: storeColumns } = useBoardStore();
+  const members      = useWorkspaceStore(s => s.members);
+  const boards       = useBoardStore(s => s.boards);
+  const storeColumns = useBoardStore(s => s.columns);
 
   const [selectedBoardId, setSelectedBoardId] = useState(boardId);
   const [boardColumns, setBoardColumns] = useState<Column[]>(

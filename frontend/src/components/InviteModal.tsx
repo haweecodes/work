@@ -3,7 +3,7 @@ import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 
 export default function InviteModal({ onClose }: { onClose: () => void }) {
-  const { currentWorkspace } = useWorkspaceStore();
+  const currentWorkspace = useWorkspaceStore(s => s.currentWorkspace);
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');

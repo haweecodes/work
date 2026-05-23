@@ -13,7 +13,8 @@ interface ShareModalProps {
 type TargetType = 'channel' | 'dm';
 
 export default function ShareModal({ message, onClose }: ShareModalProps) {
-  const { channels, dmThreads } = useWorkspaceStore();
+  const channels   = useWorkspaceStore(s => s.channels);
+  const dmThreads  = useWorkspaceStore(s => s.dmThreads);
   const { user } = useAuthStore();
   const [targetType, setTargetType] = useState<TargetType>('channel');
   const [selectedId, setSelectedId] = useState('');

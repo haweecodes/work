@@ -14,25 +14,34 @@ import type { Message } from '../types';
 export default function DMView() {
   const { threadId } = useParams<{ threadId: string }>();
   const user = useAuthStore(s => s.user);
-  const { dmThreads, members } = useWorkspaceStore();
-  const { clearThreadUnread, clearDmUnread, activeSidebar, openSidebar, closeSidebar, openShareModal } = useUIStore();
-  const { columns } = useBoardStore();
+  const dmThreads        = useWorkspaceStore(s => s.dmThreads);
+  const members          = useWorkspaceStore(s => s.members);
+  const clearThreadUnread = useUIStore(s => s.clearThreadUnread);
+  const clearDmUnread    = useUIStore(s => s.clearDmUnread);
+  const activeSidebar    = useUIStore(s => s.activeSidebar);
+  const openSidebar      = useUIStore(s => s.openSidebar);
+  const closeSidebar     = useUIStore(s => s.closeSidebar);
+  const openShareModal   = useUIStore(s => s.openShareModal);
+  const columns          = useBoardStore(s => s.columns);
 
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const thread = dmThreads.find(t => t.id === threadId);
   const otherParticipants = thread?.participants?.filter(p => p.id !== user?.id) || [];
   const title = otherParticipants.map(p => p.name).join(', ') || 'Direct Message';
   const {
-    messages, loading, content, typingUsers,
+    messages, loading, hasMore, loadingMore, content, typingUsers,
     handleContentChange, handleSend,
     handleMsgUpdated, handleMsgDeleted, handleReactionToggle, handleTaskLinked,
+    loadMore,
   } = useChatMessages({
     type: 'dm',
     id: threadId,
     user,
     endRef,
+    scrollRef,
     onClearUnread: () => { threadId && clearDmUnread(threadId); closeSidebar(); },
     highlightId: searchParams.get('highlight'),
   });
@@ -99,7 +108,7 @@ export default function DMView() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-0" style={{ paddingTop: 22, paddingBottom: 8 }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-0" style={{ paddingTop: 22, paddingBottom: 8 }}>
           {loading && <MessageListSkeleton count={6} />}
           {!loading && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-6">
@@ -115,6 +124,9 @@ export default function DMView() {
           <MessageList
             messages={messages}
             typingUsers={typingUsers}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
             onTaskLinked={handleTaskLinked}
             onMessageUpdated={handleMsgUpdated}
             onMessageDeleted={handleMsgDeleted}

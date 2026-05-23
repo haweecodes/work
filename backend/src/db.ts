@@ -51,6 +51,25 @@ export async function initDb(): Promise<void> {
       task_update_statuses TEXT NOT NULL DEFAULT '[]',
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`;
+
+    // ── Performance indexes (idempotent) ────────────────────────────────────
+    await sql`CREATE INDEX IF NOT EXISTS idx_messages_channel_id      ON messages(channel_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_messages_dm_thread_id    ON messages(dm_thread_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_messages_created_at      ON messages(created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_messages_parent          ON messages(parent_message_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_channel_members_channel  ON channel_members(channel_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_channel_members_user     ON channel_members(user_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_dm_participants_thread   ON dm_participants(thread_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_dm_participants_user     ON dm_participants(user_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_task_assignees_task      ON task_assignees(task_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_task_assignees_user      ON task_assignees(user_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_workspace_members_ws     ON workspace_members(workspace_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_notifications_user_ws   ON notifications(user_id, workspace_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_tasks_column_id         ON tasks(column_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_tasks_board_id          ON tasks(board_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_columns_board_id        ON columns(board_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_channels_workspace_id   ON channels(workspace_id)`;
+
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {
     console.error('❌ Database connection failed:', err);

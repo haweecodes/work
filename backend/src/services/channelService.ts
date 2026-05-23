@@ -63,7 +63,8 @@ export async function getWorkspaceMemberIds(workspaceId: string) {
   return rows.map(r => r.user_id);
 }
 
-export async function getMessages(channelId: string) {
+export async function getMessages(channelId: string, limit = 50, before?: string) {
+  const beforeFilter = before ? sql`AND m.created_at < ${before}::timestamptz` : sql``;
   const rows = await db.execute(sql`
     SELECT m.*, u.name as sender_name, u.avatar_url as sender_avatar,
            t.id as task_id, t.title as task_title, t.priority as task_priority,
@@ -73,10 +74,14 @@ export async function getMessages(channelId: string) {
     LEFT JOIN users u ON u.id = m.sender_id
     LEFT JOIN tasks t ON t.id = m.linked_task_id
     WHERE m.channel_id = ${channelId} AND m.parent_message_id IS NULL
-    ORDER BY m.created_at ASC
-    LIMIT 200
+    ${beforeFilter}
+    ORDER BY m.created_at DESC
+    LIMIT ${limit + 1}
   `);
-  return enrichMessages((rows.rows ?? rows) as any[]);
+  const all = (rows.rows ?? rows) as any[];
+  const hasMore = all.length > limit;
+  const messages = await enrichMessages(hasMore ? all.slice(0, limit) : all);
+  return { messages, hasMore };
 }
 
 export async function getThreadReplies(channelId: string, messageId: string) {
@@ -102,7 +107,7 @@ export async function getThreadReplies(channelId: string, messageId: string) {
              0 as reply_count
       FROM messages m LEFT JOIN users u ON u.id = m.sender_id
       LEFT JOIN tasks t ON t.id = m.linked_task_id
-      WHERE m.channel_id = ${channelId} AND m.parent_message_id = ANY(${depth1Ids}::text[])
+      WHERE m.channel_id = ${channelId} AND ${inArray(messages.parent_message_id, depth1Ids)}
       ORDER BY m.created_at ASC
     `);
     depth2 = (depth2Rows.rows ?? depth2Rows) as any[];

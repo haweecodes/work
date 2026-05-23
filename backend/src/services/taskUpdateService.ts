@@ -50,9 +50,9 @@ export async function getAssigneesForTask(taskId: string) {
     .where(eq(task_assignees.task_id, taskId));
 }
 
-export async function createUpdateRequestNotification(userId: string, type: string, referenceId: string, message: string, extraId: string, workspaceId: string) {
+export async function createUpdateRequestNotification(userId: string, type: string, referenceId: string, message: string, extraId: string | null, workspaceId: string) {
   const id = uuidv4();
-  await db.insert(notifications).values({ id, user_id: userId, type, reference_id: referenceId, reference_type: 'update_request', message, extra_id: extraId, workspace_id: workspaceId, is_read: 0 });
+  await db.insert(notifications).values({ id, user_id: userId, type, reference_id: referenceId, reference_type: 'update_request', message, extra_id: extraId ?? undefined, workspace_id: workspaceId, is_read: 0 });
   return id;
 }
 
@@ -181,26 +181,56 @@ export async function getUpdateHistory(boardId: string, workspaceId: string) {
   }));
 }
 
-export async function getPendingForUser(userId: string, workspaceId: string) {
+export async function getMyUpdateTimeline(userId: string, workspaceId: string) {
   const rows = await db.execute(sql`
-    SELECT n.id as notification_id, n.extra_id as request_id,
-           n.reference_id as task_id, r.board_id,
-           u.name as requester_name
-    FROM notifications n
-    JOIN task_update_requests r ON r.id = n.extra_id
+    SELECT
+      r.id          AS request_id,
+      r.board_id,
+      r.scope,
+      b.name        AS board_name,
+      u.name        AS requester_name,
+      r.created_at  AS requested_at,
+      t.id          AS task_id,
+      t.title       AS task_title,
+      t.task_key,
+      t.due_date,
+      col.title     AS column_title,
+      res.status    AS response_status,
+      res.reason    AS response_reason,
+      res.created_at AS responded_at
+    FROM task_update_requests r
+    JOIN boards b ON b.id = r.board_id AND b.workspace_id = r.workspace_id
     JOIN users u ON u.id = r.requested_by
-    WHERE n.user_id = ${userId} AND n.type = 'task_update_request'
-      AND n.workspace_id = ${workspaceId} AND n.is_read = 0
+    JOIN tasks t ON (
+      (r.scope = 'task'   AND t.id = r.task_id) OR
+      (r.scope = 'column' AND t.column_id = r.column_id AND t.board_id = r.board_id) OR
+      (r.scope = 'board'  AND t.board_id = r.board_id)
+    )
+    JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = ${userId}
+    JOIN columns col ON col.id = t.column_id
+    LEFT JOIN task_update_responses res
+      ON res.request_id = r.id AND res.task_id = t.id AND res.user_id = ${userId}
+    WHERE r.workspace_id = ${workspaceId}
+    ORDER BY r.created_at DESC, t.task_key
   `);
   return (rows.rows ?? rows) as any[];
 }
 
-export async function getTaskForNotification(taskId: string, workspaceId: string) {
-  const rows = await db.execute(sql`
+export { getMyUpdateTimeline as getPendingForUser };
+
+export async function getTaskForNotification(id: string, workspaceId: string) {
+  const taskRows = await db.execute(sql`
     SELECT t.task_key, t.board_id FROM tasks t
     JOIN boards b ON b.id = t.board_id
-    WHERE t.id = ${taskId} AND b.workspace_id = ${workspaceId}
+    WHERE t.id = ${id} AND b.workspace_id = ${workspaceId}
   `);
-  const result = ((rows.rows ?? rows) as any[])[0];
-  return result ?? null;
+  const task = ((taskRows.rows ?? taskRows) as any[])[0];
+  if (task) return task;
+  // Fall back to request ID (used by task_update_response notifications)
+  const reqRows = await db.execute(sql`
+    SELECT board_id FROM task_update_requests
+    WHERE id = ${id} AND workspace_id = ${workspaceId}
+  `);
+  const req = ((reqRows.rows ?? reqRows) as any[])[0];
+  return req ? { board_id: req.board_id, task_key: null } : null;
 }

@@ -23,8 +23,14 @@ const PRIORITY_STYLES: Record<string, PriorityStyle> = {
 export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
-  const { members, taskUpdateStatuses } = useWorkspaceStore();
-  const { boards, selectedTask, setSelectedTask, columns, updateTaskInColumn, removeTask } = useBoardStore();
+  const members            = useWorkspaceStore(s => s.members);
+  const taskUpdateStatuses = useWorkspaceStore(s => s.taskUpdateStatuses);
+  const boards             = useBoardStore(s => s.boards);
+  const selectedTask       = useBoardStore(s => s.selectedTask);
+  const setSelectedTask    = useBoardStore(s => s.setSelectedTask);
+  const columns            = useBoardStore(s => s.columns);
+  const updateTaskInColumn = useBoardStore(s => s.updateTaskInColumn);
+  const removeTask         = useBoardStore(s => s.removeTask);
   const [form, setForm] = useState<{
     title: string;
     description: string;
@@ -54,7 +60,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   const [columnMatchState, setColumnMatchState] = useState<'matched' | 'unmatched' | null>(null);
 
   // Pending update request for this task
-  const [pendingRequest, setPendingRequest] = useState<{ request_id: string; notification_id: string; requester_name: string } | null>(null);
+  const [pendingRequest, setPendingRequest] = useState<{ request_id: string; requester_name: string } | null>(null);
   const [respondingStatus, setRespondingStatus] = useState<string | null>(null);
   const [delayReason, setDelayReason] = useState('');
   const [submittingResponse, setSubmittingResponse] = useState(false);
@@ -108,8 +114,8 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
     setDelayReason('');
     client.get<any[]>('/api/task-updates/pending/me')
       .then(({ data }) => {
-        const match = data.find((r: any) => r.task_id === selectedTask.id);
-        if (match) setPendingRequest({ request_id: match.request_id, notification_id: match.notification_id, requester_name: match.requester_name });
+        const match = data.find((r: any) => r.task_id === selectedTask.id && r.response_status === null);
+        if (match) setPendingRequest({ request_id: match.request_id, requester_name: match.requester_name });
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps

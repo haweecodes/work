@@ -172,7 +172,8 @@ function InlineTaskForm({
   onClose: () => void;
   onSuccess: (task: Task) => void;
 }) {
-  const { boards, columns: storeColumns } = useBoardStore();
+  const boards       = useBoardStore(s => s.boards);
+  const storeColumns = useBoardStore(s => s.columns);
   const [title, setTitle] = useState(prefill.slice(0, 120));
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState(defaultDueDate ?? '');

@@ -9,6 +9,7 @@ interface Config {
   id: string | undefined;
   user: User | null;
   endRef: React.RefObject<HTMLDivElement | null>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   /** clearChannelUnread(id) or clearDmUnread(id) */
   onClearUnread: () => void;
   highlightId?: string | null;
@@ -17,6 +18,8 @@ interface Config {
 export interface UseChatMessagesReturn {
   messages: Message[];
   loading: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
   content: string;
   typingUsers: Record<string, string>;
   /** Expose so components can apply task-link / modal-close updates */
@@ -27,17 +30,29 @@ export interface UseChatMessagesReturn {
   handleMsgDeleted: (msgId: string) => void;
   handleReactionToggle: (msgId: string, reactions: Reaction[]) => void;
   handleTaskLinked: (msgId: string, task: Task) => void;
+  loadMore: () => Promise<void>;
 }
 
 const TYPING_STOP_DELAY = 3000;
 
-export function useChatMessages({ type, id, user, endRef, onClearUnread, highlightId }: Config): UseChatMessagesReturn {
+export function useChatMessages({ type, id, user, endRef, scrollRef, onClearUnread, highlightId }: Config): UseChatMessagesReturn {
   const socketRef = useContext(SocketContext);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const oldestTimestamp = useRef<string | null>(null);
+  const scrollRestoreRef = useRef<{ heightBefore: number; topBefore: number } | null>(null);
+  // Refs so the scroll listener always sees current values without stale closures
+  const hasMoreRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const loadMoreRef = useRef<(() => Promise<void>) | null>(null);
+  hasMoreRef.current = hasMore;
+  loadingMoreRef.current = loadingMore;
 
   // Timers for incoming typing indicator auto-clear
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -47,16 +62,38 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
   const isTypingActive = useRef(false);
   // The temp ID we're waiting to see in `messages` before scrolling
   const pendingScrollId = useRef<string | null>(null);
+  // Set to true before setMessages on initial load so useLayoutEffect can jump to bottom
+  const shouldScrollToBottom = useRef(false);
 
-  const scrollToBottom = () => endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    const sc = scrollRef.current;
+    if (sc) sc.scrollTo({ top: sc.scrollHeight, behavior });
+  };
 
-  // Scroll instantly once the optimistic message lands in the DOM
+  // Jump to bottom on initial load — instant, no animation (new channel/DM navigation)
+  useLayoutEffect(() => {
+    if (!shouldScrollToBottom.current) return;
+    shouldScrollToBottom.current = false;
+    const sc = scrollRef.current;
+    if (sc) sc.scrollTop = sc.scrollHeight;
+  }, [messages]);
+
+  // Smooth-scroll once the optimistic message lands in the DOM
   useLayoutEffect(() => {
     if (!pendingScrollId.current) return;
     if (messages.some((m: Message) => m.id === pendingScrollId.current)) {
-      endRef.current?.scrollIntoView();
+      scrollToBottom('smooth');
       pendingScrollId.current = null;
     }
+  }, [messages]);
+
+  // Restore scroll position after prepending older messages
+  useLayoutEffect(() => {
+    const target = scrollRestoreRef.current;
+    const sc = scrollRef.current;
+    if (!target || !sc) return;
+    sc.scrollTop = target.topBefore + (sc.scrollHeight - target.heightBefore);
+    scrollRestoreRef.current = null;
   }, [messages]);
 
   // ── Socket listeners + initial fetch ──────────────────────────────────────
@@ -65,6 +102,10 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
     onClearUnread();
     setLoading(true);
     setMessages([]);
+    setHasMore(false);
+    setLoadingMore(false);
+    oldestTimestamp.current = null;
+    scrollRestoreRef.current = null;
 
     const socket = socketRef?.current;
 
@@ -140,22 +181,31 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
     }
 
     const fetchUrl = type === 'channel' ? `/api/channels/messages/${id}` : `/api/dms/${id}`;
-    client.get<Message[]>(fetchUrl)
+    client.get<{ messages: Message[]; hasMore: boolean }>(`${fetchUrl}?limit=50`)
       .then(({ data }) => {
-        setMessages(data);
+        // Backend returns DESC (newest first) — reverse for display (oldest at top)
+        const ordered = [...data.messages].reverse();
+        oldestTimestamp.current = data.messages[data.messages.length - 1]?.created_at ?? null;
+        if (!highlightId) {
+          // Flag useLayoutEffect to jump to bottom after this render
+          shouldScrollToBottom.current = true;
+        }
+        setMessages(ordered);
+        setHasMore(data.hasMore);
         setLoading(false);
-        setTimeout(() => {
-          if (highlightId) {
+        if (highlightId) {
+          // Highlight needs a tick after render to find the element by data attribute
+          setTimeout(() => {
             const el = document.querySelector(`[data-msg-id="${highlightId}"]`);
             if (el) {
               el.scrollIntoView({ behavior: 'smooth', block: 'center' });
               el.classList.add('msg-highlight');
               setTimeout(() => el.classList.remove('msg-highlight'), 3000);
-              return;
+            } else {
+              scrollToBottom('smooth');
             }
-          }
-          scrollToBottom();
-        }, 60);
+          }, 80);
+        }
       })
       .catch(() => setLoading(false));
 
@@ -176,6 +226,42 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, type]);
+
+  // ── Scroll-to-top listener triggers loadMore ─────────────────────────────
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const handleScroll = () => {
+      if (sc.scrollTop < 150 && hasMoreRef.current && !loadingMoreRef.current) {
+        loadMoreRef.current?.();
+      }
+    };
+    sc.addEventListener('scroll', handleScroll, { passive: true });
+    return () => sc.removeEventListener('scroll', handleScroll);
+  // Re-attach whenever the scroll container itself could change (id/type change)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, type]);
+
+  // ── Load older messages ───────────────────────────────────────────────────
+  const loadMore = async () => {
+    if (!hasMoreRef.current || loadingMoreRef.current || !id || !oldestTimestamp.current) return;
+    setLoadingMore(true);
+    const sc = scrollRef.current;
+    scrollRestoreRef.current = { heightBefore: sc?.scrollHeight ?? 0, topBefore: sc?.scrollTop ?? 0 };
+    try {
+      const fetchUrl = type === 'channel' ? `/api/channels/messages/${id}` : `/api/dms/${id}`;
+      const { data } = await client.get<{ messages: Message[]; hasMore: boolean }>(
+        `${fetchUrl}?limit=50&before=${encodeURIComponent(oldestTimestamp.current)}`
+      );
+      const older = [...data.messages].reverse();
+      oldestTimestamp.current = data.messages[data.messages.length - 1]?.created_at ?? oldestTimestamp.current;
+      setHasMore(data.hasMore);
+      setMessages(prev => [...older, ...prev]);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+  loadMoreRef.current = loadMore;
 
   // ── Typing emit ───────────────────────────────────────────────────────────
   const emitTyping = (typing: boolean) => {
@@ -248,8 +334,9 @@ export function useChatMessages({ type, id, user, endRef, onClearUnread, highlig
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, linked_task_id: task.id, linked_task: task } : m));
 
   return {
-    messages, loading, content, typingUsers, setMessages,
+    messages, loading, hasMore, loadingMore, content, typingUsers, setMessages,
     handleContentChange, handleSend,
     handleMsgUpdated, handleMsgDeleted, handleReactionToggle, handleTaskLinked,
+    loadMore,
   };
 }

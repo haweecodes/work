@@ -10,7 +10,8 @@ interface Props {
 }
 
 export default function SendPriorityAlertModal({ onClose, initialMessage = '', initialRecipientIds = [] }: Props) {
-  const { members, currentWorkspace } = useWorkspaceStore();
+  const members          = useWorkspaceStore(s => s.members);
+  const currentWorkspace = useWorkspaceStore(s => s.currentWorkspace);
   const user = useAuthStore(s => s.user);
   const [message, setMessage] = useState(initialMessage);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialRecipientIds));
