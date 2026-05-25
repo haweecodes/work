@@ -55,6 +55,8 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
   const [copiedKey, setCopiedKey] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  const formInitialized = useRef(false);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Column matching state when moving to a different board
   const [columnMatchState, setColumnMatchState] = useState<'matched' | 'unmatched' | null>(null);
@@ -71,6 +73,8 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   // effect and cause an infinite fetch loop).
   useEffect(() => {
     if (!selectedTask) return;
+    formInitialized.current = false;
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
     setLoading(true);
     setForm(null);
     setCopiedKey(false);
@@ -151,6 +155,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
   const handleSave = async () => {
     if (!form || !selectedTask) return;
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
     setSaving(true);
     setSaveStatus('idle');
     const boardChanged = form.board_id && form.board_id !== selectedTask.board_id;
@@ -183,6 +188,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
     setDeleting(true);
     try {
       await client.delete(`/api/tasks/${selectedTask.id}`);
+      subtasks.forEach(st => removeTask(st.id));
       removeTask(selectedTask.id);
       setSelectedTask(null);
     } finally {
@@ -228,6 +234,19 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
       return () => clearTimeout(t);
     }
   }, [!!form]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save: fire 700ms after the last form change.
+  // Skip the initial population (formInitialized gate) and any mid-board-change
+  // state where column_id is empty (save would be invalid until user picks a column).
+  useEffect(() => {
+    if (!form || !selectedTask) return;
+    if (!formInitialized.current) { formInitialized.current = true; return; }
+    if (!form.column_id) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(handleSave, 700);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
 
   const closePanel = useCallback(() => {
     if (onBack) onBack();
@@ -584,39 +603,37 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
         </div>
       </div>
 
-      <div className="flex items-baseline gap-6 flex-shrink-0" style={{ padding: '16px 28px 20px', borderTop: '1px solid var(--rule)' }}>
+      <div className="flex items-center justify-between flex-shrink-0" style={{ padding: '16px 28px 20px', borderTop: '1px solid var(--rule)' }}>
         {showDeleteConfirm ? (
-          <>
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>Delete this task?</span>
-            <button onClick={handleDelete} disabled={deleting} className="btn-danger"
-              style={{ color: 'var(--danger)' }}>
+          <div className="flex items-baseline gap-6">
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {subtasks.length > 0
+                ? `Delete task + ${subtasks.length} subtask${subtasks.length > 1 ? 's' : ''}?`
+                : 'Delete this task?'}
+            </span>
+            <button onClick={handleDelete} disabled={deleting} className="btn-danger">
               {deleting ? '…' : 'Confirm'}
             </button>
             <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting} className="btn-ghost">
               Cancel
             </button>
-          </>
+          </div>
         ) : (
-          <>
-            <button onClick={handleSave} className="btn-primary"
-              disabled={saving || (form.board_id !== selectedTask.board_id && !form.column_id)}
-              title={form.board_id !== selectedTask.board_id && !form.column_id ? 'Select a column in the target board first' : 'Save (⌘↵)'}
-              style={saveStatus === 'saved' ? { color: 'var(--ink)', textDecorationColor: 'var(--ink)' } : saveStatus === 'error' ? { color: 'var(--danger)' } : {}}>
-              {saving ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? 'Save failed — retry' : 'Save changes →'}
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="btn-danger"
-              disabled={subtasks.length > 0}
-              title={subtasks.length > 0 ? `Cannot delete — has ${subtasks.length} subtask${subtasks.length > 1 ? 's' : ''}` : undefined}>
+          <div className="flex items-baseline gap-6">
+            <button onClick={() => setShowDeleteConfirm(true)} className="btn-danger">
               Delete
             </button>
-            {subtasks.length > 0 && (
-              <span style={{ fontSize: 11, color: 'var(--faint)' }}>
-                Delete subtasks first
-              </span>
+          </div>
+        )}
+        {!showDeleteConfirm && (saving || saveStatus !== 'idle') && (
+          <span style={{ fontSize: 11, letterSpacing: '0.04em',
+            color: saving ? 'var(--muted)' : saveStatus === 'saved' ? '#059669' : 'var(--danger)' }}>
+            {saving ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : (
+              <button onClick={handleSave} style={{ fontSize: 11, color: 'var(--danger)', textDecoration: 'underline' }}>
+                Save failed — retry
+              </button>
             )}
-          </>
+          </span>
         )}
       </div>
     </div>

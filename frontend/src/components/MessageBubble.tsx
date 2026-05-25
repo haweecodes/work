@@ -7,6 +7,7 @@ import useBoardStore from '../store/boardStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import MessageActionBar from './MessageActionBar';
 import SendPriorityAlertModal from './SendPriorityAlertModal';
+import UserAvatar from './UserAvatar';
 import client from '../api/client';
 import type { Message, Reaction, Task, Member } from '../types';
 
@@ -174,12 +175,14 @@ function InlineTaskForm({
 }) {
   const boards       = useBoardStore(s => s.boards);
   const storeColumns = useBoardStore(s => s.columns);
+  const members      = useWorkspaceStore(s => s.members);
   const [title, setTitle] = useState(prefill.slice(0, 120));
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState(defaultDueDate ?? '');
   const [selectedBoardId, setSelectedBoardId] = useState(boards[0]?.id ?? '');
   const [colOptions, setColOptions] = useState<Array<{ id: string; title: string }>>([]);
   const [selectedColId, setSelectedColId] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(() => extractMentionedIds(msg.content, members));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -218,6 +221,7 @@ function InlineTaskForm({
         title: title.trim(),
         priority,
         due_date: dueDate || undefined,
+        assignee_ids: assigneeIds.length ? assigneeIds : undefined,
         linked_message_id: msg.id,
       });
       onSuccess(data);
@@ -287,6 +291,29 @@ function InlineTaskForm({
           <input type="date" className="input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
         </div>
       </div>
+
+      {/* Assignees */}
+      {members.length > 0 && (
+        <div className="mb-3">
+          <label className="label">Assignees</label>
+          <div className="flex flex-wrap gap-3 mt-1">
+            {members.map(m => {
+              const selected = assigneeIds.includes(m.id);
+              return (
+                <button key={m.id} type="button"
+                  onClick={() => setAssigneeIds(prev => selected ? prev.filter(id => id !== m.id) : [...prev, m.id])}
+                  className="flex items-center gap-1.5"
+                  style={{ fontSize: 13, color: selected ? 'var(--ink)' : 'var(--muted)', fontWeight: selected ? 500 : 400, borderBottom: `1px solid ${selected ? 'var(--ink)' : 'transparent'}`, paddingBottom: 1 }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                  onMouseLeave={e => { if (!selected) e.currentTarget.style.color = 'var(--muted)'; }}>
+                  <img src={m.avatar_url} className="w-4 h-4 rounded-full" alt={m.name} />
+                  {m.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {error && <p style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 8 }}>{error}</p>}
 
@@ -583,7 +610,7 @@ function MessageBubble({
     >
       {/* ── Floating action bar — hidden while inline form or delete confirm is open ── */}
       {!showInlineForm && !showDeleteConfirm && (
-        <div className="absolute right-4 top-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+        <div className="absolute right-4 top-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 z-10">
           <MessageActionBar
             msg={msg}
             onReply={onReply}
@@ -607,13 +634,19 @@ function MessageBubble({
         {/* Avatar column — 22px wide for consistent text alignment across groups */}
         {isContinuation ? (
           <div style={{ width: 22, flexShrink: 0 }} />
-        ) : (
-          <img
-            src={msg.sender?.avatar_url}
-            alt={msg.sender?.name || ''}
-            style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, marginTop: 3, objectFit: 'cover' }}
-          />
-        )}
+        ) : (() => {
+          const senderMember = members.find(m => m.id === msg.sender?.id);
+          return (
+            <UserAvatar
+              src={msg.sender?.avatar_url}
+              name={msg.sender?.name}
+              size={22}
+              statusEmoji={senderMember?.status_emoji}
+              statusText={senderMember?.status_text}
+              style={{ marginTop: 3 }}
+            />
+          );
+        })()}
 
         <div className="flex-1 min-w-0">
           {/* Header row — omitted for continuation messages */}
@@ -706,7 +739,10 @@ function MessageBubble({
               </div>
             </div>
           ) : (msg.content || !msg.shared_message) && (
-            <p style={{ fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: '64ch', letterSpacing: '-0.005em', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            <p
+              style={{ fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: '64ch', letterSpacing: '-0.005em', whiteSpace: 'pre-wrap', wordBreak: 'break-word', cursor: onReply ? 'pointer' : undefined }}
+              onClick={onReply ? e => { if (!(e.target as HTMLElement).closest('a')) onReply(msg); } : undefined}
+            >
               {renderedContent}
               {msg.edited_at && (
                 <span

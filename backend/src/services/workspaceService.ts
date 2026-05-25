@@ -32,6 +32,7 @@ export async function getWorkspaceMembers(workspaceId: string) {
     .select({
       id: users.id, name: users.name, email: users.email,
       avatar_url: users.avatar_url, role: workspace_members.role,
+      status_emoji: users.status_emoji, status_text: users.status_text,
     })
     .from(workspace_members)
     .innerJoin(users, eq(workspace_members.user_id, users.id))
@@ -67,6 +68,6 @@ export async function getWorkspaceByInviteCode(code: string) {
 export async function getMemberPublicData(userId: string) {
   return db.query.users.findFirst({
     where: eq(users.id, userId),
-    columns: { id: true, name: true, email: true, avatar_url: true },
+    columns: { id: true, name: true, email: true, avatar_url: true, status_emoji: true, status_text: true },
   });
 }

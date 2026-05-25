@@ -153,18 +153,16 @@ function NotifCard({ n, onNavigate, onDismiss }: {
         </p>
       </button>
 
-      {/* Hover dismiss */}
-      {hovered && (
-        <button
-          onClick={e => { e.stopPropagation(); onDismiss(n.id); }}
-          style={{ position: 'absolute', top: 8, right: 8, color: 'var(--faint)', padding: 2, lineHeight: 1 }}
-          title="Dismiss"
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}
-        >
-          <X size={12} />
-        </button>
-      )}
+      <button
+        onClick={e => { e.stopPropagation(); onDismiss(n.id); }}
+        style={{ position: 'absolute', top: 8, right: 8, color: 'var(--faint)', padding: 2, lineHeight: 1,
+          opacity: hovered ? 1 : 0.35, transition: 'opacity 0.15s' }}
+        title="Dismiss"
+        onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+        onMouseLeave={e => (e.currentTarget.style.opacity = hovered ? '1' : '0.35')}
+      >
+        <X size={12} />
+      </button>
     </div>
   );
 }

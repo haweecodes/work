@@ -33,6 +33,7 @@ interface WorkspaceState {
   addDmThread: (thread: DmThread) => void;
   updateDmThread: (thread: DmThread) => void;
   addMember: (member: Member) => void;
+  updateMemberStatus: (userId: string, status_emoji: string | null, status_text: string | null) => void;
 }
 
 const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -130,6 +131,9 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (s.members.some(m => m.id === member.id)) return s;
     return { members: [...s.members, member] };
   }),
+  updateMemberStatus: (userId, status_emoji, status_text) => set((s) => ({
+    members: s.members.map(m => m.id === userId ? { ...m, status_emoji, status_text } : m),
+  })),
 }));
 
 export default useWorkspaceStore;

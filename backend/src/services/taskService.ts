@@ -152,6 +152,19 @@ export async function deleteTask(id: string) {
   await db.delete(tasks).where(eq(tasks.id, id));
 }
 
+export async function deleteTaskCascade(id: string) {
+  const subtasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.parent_task_id, id));
+  if (subtasks.length > 0) {
+    const subtaskIds = subtasks.map(s => s.id);
+    await db.delete(task_assignees).where(inArray(task_assignees.task_id, subtaskIds));
+    await db.update(messages).set({ linked_task_id: null }).where(inArray(messages.linked_task_id, subtaskIds));
+    await db.delete(tasks).where(inArray(tasks.id, subtaskIds));
+  }
+  await db.delete(task_assignees).where(eq(task_assignees.task_id, id));
+  await db.update(messages).set({ linked_task_id: null }).where(eq(messages.linked_task_id, id));
+  await db.delete(tasks).where(eq(tasks.id, id));
+}
+
 export async function moveTask(id: string, columnId: string, position: number) {
   await db.update(tasks).set({ column_id: columnId, position }).where(eq(tasks.id, id));
 }

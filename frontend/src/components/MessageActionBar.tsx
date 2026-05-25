@@ -83,10 +83,10 @@ export default function MessageActionBar({
           onClick={() => setShowPicker(v => !v)}
           active={showPicker} />
 
-        {onAlert && <ActionBtn label="Alert" onClick={onAlert} />}
+        {onReply && <ActionBtn label="Reply" onClick={() => onReply(msg)} />}
         {onShare && <ActionBtn label="Share" onClick={() => onShare(msg)} />}
         {onTask  && <ActionBtn label="Task"  onClick={onTask} />}
-        {onReply && <ActionBtn label="Reply" onClick={() => onReply(msg)} />}
+        {onAlert && <ActionBtn label="Alert" onClick={onAlert} />}
 
         {isOwn && onEdit && (
           <>
@@ -111,7 +111,6 @@ const ActionBtn = forwardRef<HTMLButtonElement, {
     <button
       ref={ref}
       type="button"
-      tabIndex={-1}
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

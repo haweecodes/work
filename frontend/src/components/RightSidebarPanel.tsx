@@ -7,6 +7,7 @@ import NotificationPanel from './NotificationPanel';
 import BoardUpdatesPanel from './BoardUpdatesPanel';
 import TaskUpdatePanel from './TaskUpdatePanel';
 import TaskTray from './TaskTray';
+import ChannelInfoPanel from './ChannelInfoPanel';
 
 const TaskDetailPanel = lazy(() => import('./TaskDetailPanel'));
 const ThreadPanel     = lazy(() => import('./ThreadPanel'));
@@ -57,10 +58,11 @@ export default function RightSidebarPanel() {
   const showThread        = activeSidebar?.type === 'thread';
   const showTasks         = activeSidebar?.type === 'tasks';
   const showTaskUpdates   = activeSidebar?.type === 'task-updates';
+  const showChannelInfo   = activeSidebar?.type === 'channel-info';
   // Task detail shows only when no other panel has been explicitly opened.
-  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates;
+  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates && !showChannelInfo;
 
-  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates) return null;
+  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates && !showChannelInfo) return null;
 
   return (
     <>
@@ -112,6 +114,9 @@ export default function RightSidebarPanel() {
         )}
         {showTaskUpdates && (
           <TaskUpdatePanel onClose={closeSidebar} />
+        )}
+        {showChannelInfo && activeSidebar?.type === 'channel-info' && (
+          <ChannelInfoPanel channelId={activeSidebar.channelId} onClose={closeSidebar} />
         )}
       </div>
 

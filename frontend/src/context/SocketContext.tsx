@@ -115,6 +115,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       useWorkspaceStore.getState().updateChannel({ id: channelId, is_archived: 1 });
     });
 
+    socket.on('user_status_changed', ({ userId, status_emoji, status_text }: { userId: string; status_emoji: string | null; status_text: string | null }) => {
+      useWorkspaceStore.getState().updateMemberStatus(userId, status_emoji, status_text);
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;

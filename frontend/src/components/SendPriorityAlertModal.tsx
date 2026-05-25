@@ -2,6 +2,7 @@ import { useState } from 'react';
 import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 import useAuthStore from '../store/authStore';
+import UserAvatar from './UserAvatar';
 
 interface Props {
   onClose: () => void;
@@ -123,7 +124,23 @@ export default function SendPriorityAlertModal({ onClose, initialMessage = '', i
 
             {/* Recipients */}
             <div className="mb-5">
-              <label className="label">Recipients</label>
+              <div className="flex items-baseline justify-between mb-1">
+                <label className="label">Recipients</label>
+                {otherMembers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(
+                      selectedIds.size === otherMembers.length
+                        ? new Set()
+                        : new Set(otherMembers.map(m => m.id))
+                    )}
+                    style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}>
+                    {selectedIds.size === otherMembers.length ? 'Deselect all' : 'Select all'}
+                  </button>
+                )}
+              </div>
               <div className="flex flex-col gap-0">
                 {otherMembers.map(m => (
                   <button
@@ -145,10 +162,15 @@ export default function SendPriorityAlertModal({ onClose, initialMessage = '', i
                         </svg>
                       )}
                     </span>
-                    <img src={m.avatar_url} alt={m.name} style={{ width: 20, height: 20, borderRadius: '50%' }} />
+                    <UserAvatar src={m.avatar_url} name={m.name} size={20} statusEmoji={m.status_emoji} statusText={m.status_text} />
                     <span style={{ fontSize: 14, color: 'var(--ink-2)', fontWeight: selectedIds.has(m.id) ? 500 : 400 }}>
                       {m.name}
                     </span>
+                    {m.status_emoji && (
+                      <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 2 }}>
+                        {m.status_emoji} {m.status_text}
+                      </span>
+                    )}
                   </button>
                 ))}
                 {otherMembers.length === 0 && (

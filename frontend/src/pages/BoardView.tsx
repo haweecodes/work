@@ -41,6 +41,17 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 // ── TaskCard ──────────────────────────────────────────────────────────────────
 
+type DueDateState = 'overdue' | 'today' | 'normal';
+function getDueDateState(dueDateStr: string): DueDateState {
+  const due = new Date(dueDateStr);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd   = new Date(todayStart.getTime() + 86_400_000);
+  if (due < todayStart) return 'overdue';
+  if (due < todayEnd)   return 'today';
+  return 'normal';
+}
+
 const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task: Task; onSelect?: () => void; doneColumnId?: string }) {
   const [_, setSearchParams] = useSearchParams();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSelfDragging } = useSortable({ id: task.id });
@@ -83,7 +94,14 @@ const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task
       className={`relative bg-white rounded-xl shadow-card p-3.5 cursor-pointer
         hover:border-primary-200 hover:shadow-md transition-all duration-150 group flex flex-col gap-3
         ${isSelfDragging ? 'opacity-40' : ''}`}
-      style={{ ...style, border: isSelected ? '2px solid #6366f1' : '1px solid #F3F4F6' }}
+      style={{
+        ...style,
+        border: isSelected ? '2px solid #6366f1' : '1px solid #F3F4F6',
+        borderLeft: isSelected ? undefined
+          : task.due_date && getDueDateState(task.due_date) === 'overdue' ? '3px solid #ef4444'
+          : task.due_date && getDueDateState(task.due_date) === 'today'   ? '3px solid #f59e0b'
+          : undefined,
+      }}
       onClick={() => {
         onSelect?.();
         if (task.task_key) {
@@ -97,7 +115,7 @@ const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task
       {...listeners}
     >
       {/* Drag handle — top right */}
-      <div className="absolute top-3 right-3 text-gray-300 cursor-grab active:cursor-grabbing select-none">
+      <div className="absolute top-3 right-3 text-gray-300 cursor-grab active:cursor-grabbing select-none opacity-0 group-hover:opacity-100 transition-opacity duration-150">
         <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
           <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
           <circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/>
@@ -144,9 +162,19 @@ const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task
           )}
         </div>
         <div className="flex items-center gap-2">
-          {task.due_date && (
-            <span className="text-xs text-gray-400">{format(new Date(task.due_date), 'MMM d')}</span>
-          )}
+          {task.due_date && (() => {
+            const ds = getDueDateState(task.due_date);
+            return (
+              <span className={`text-xs flex items-center gap-0.5 font-medium ${ds === 'overdue' ? 'text-red-500' : ds === 'today' ? 'text-amber-500' : 'text-gray-400 font-normal'}`}>
+                {ds === 'overdue' && (
+                  <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                )}
+                {format(new Date(task.due_date), 'MMM d')}
+              </span>
+            );
+          })()}
           {task.assignees && task.assignees.length > 0 && (
             <div className="flex -space-x-1">
               {task.assignees.slice(0, 3).map(a => (
@@ -279,7 +307,8 @@ export default function BoardView() {
   const updateBoardName   = useBoardStore(s => s.updateBoardName);
   const socketRef = useContext(SocketContext);
   const user = useAuthStore(s => s.user);
-  const role = useWorkspaceStore(s => s.role);
+  const role    = useWorkspaceStore(s => s.role);
+  const members = useWorkspaceStore(s => s.members);
   const activeSidebar = useUIStore(s => s.activeSidebar);
   const openSidebar   = useUIStore(s => s.openSidebar);
   const closeSidebar  = useUIStore(s => s.closeSidebar);
@@ -287,7 +316,12 @@ export default function BoardView() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [createInColumn, setCreateInColumn] = useState<string | null>(null);
+  const lastActiveColumnId = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterAssigneeIds, setFilterAssigneeIds] = useState<string[]>([]);
+  const [filterPriorities,  setFilterPriorities]  = useState<string[]>([]);
+  const [filterDueDate,     setFilterDueDate]     = useState<'overdue' | 'today' | 'this_week' | null>(null);
+  const [showFilters,       setShowFilters]       = useState(false);
   const [loading, setLoading] = useState(true);
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [newColName, setNewColName] = useState('');
@@ -311,17 +345,36 @@ export default function BoardView() {
     [columns]
   );
 
-  const filteredColumns = useMemo(() =>
-    columns.map(col => ({
+  const filteredColumns = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd   = new Date(todayStart.getTime() + 86_400_000);
+    const weekEnd    = new Date(todayStart.getTime() + 7 * 86_400_000);
+    return columns.map(col => ({
       ...col,
       tasks: (col.tasks ?? []).filter(t => {
-        if (!searchQuery) return true;
-        const q = searchQuery.toLowerCase();
-        return t.title.toLowerCase().includes(q) || t.task_key?.toLowerCase().includes(q);
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          if (!t.title.toLowerCase().includes(q) && !t.task_key?.toLowerCase().includes(q)) return false;
+        }
+        if (filterAssigneeIds.length > 0) {
+          const ids = t.assignees?.map(a => a.id) ?? [];
+          if (!filterAssigneeIds.some(id => ids.includes(id))) return false;
+        }
+        if (filterPriorities.length > 0) {
+          if (!filterPriorities.includes(t.priority ?? 'medium')) return false;
+        }
+        if (filterDueDate !== null) {
+          if (!t.due_date) return false;
+          const due = new Date(t.due_date);
+          if (filterDueDate === 'overdue'   && !(due < todayStart)) return false;
+          if (filterDueDate === 'today'     && !(due >= todayStart && due < todayEnd)) return false;
+          if (filterDueDate === 'this_week' && !(due >= todayStart && due < weekEnd))  return false;
+        }
+        return true;
       }),
-    })),
-    [columns, searchQuery]
-  );
+    }));
+  }, [columns, searchQuery, filterAssigneeIds, filterPriorities, filterDueDate]);
 
   const handleTaskSelect = useCallback(() => closeSidebar(), [closeSidebar]);
 
@@ -461,6 +514,7 @@ export default function BoardView() {
   };
 
   const handleAddTask = (columnId: string) => {
+    lastActiveColumnId.current = columnId;
     setCreateInColumn(columnId);
     setShowCreateTask(true);
   };
@@ -555,6 +609,21 @@ export default function BoardView() {
               onBlur={e => (e.currentTarget.style.borderBottomColor = 'var(--rule)')}
             />
           </div>
+          {(() => {
+            const activeFilterCount = filterAssigneeIds.length + filterPriorities.length + (filterDueDate ? 1 : 0);
+            return (
+              <button
+                onClick={() => setShowFilters(v => !v)}
+                style={{
+                  fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  color: activeFilterCount > 0 ? 'var(--ink)' : showFilters ? 'var(--ink)' : 'var(--muted)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                onMouseLeave={e => { if (!showFilters && activeFilterCount === 0) e.currentTarget.style.color = 'var(--muted)'; }}>
+                Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </button>
+            );
+          })()}
           <button
             onClick={() => {
               if (showUpdatesPanel) {
@@ -578,12 +647,72 @@ export default function BoardView() {
               Request Updates
             </span>
           </button>
-          <button onClick={() => handleAddTask(columns[0]?.id)} className="btn-primary flex items-center gap-1.5">
+          <button onClick={() => handleAddTask(lastActiveColumnId.current ?? columns[0]?.id)} className="btn-primary flex items-center gap-1.5">
             <Plus size={14} />
             New task
           </button>
         </div>
       </div>
+
+      {/* Filter bar */}
+      {showFilters && (
+        <div className="flex items-center gap-6 flex-wrap flex-shrink-0"
+          style={{ padding: '10px 40px', borderBottom: '1px solid var(--rule)', background: 'var(--paper)' }}>
+
+          {/* Priority */}
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>Priority</span>
+            {(['low', 'medium', 'high', 'critical'] as const).map(p => (
+              <button key={p} type="button"
+                onClick={() => setFilterPriorities(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${filterPriorities.includes(p) ? PRIORITY_BADGE[p] + ' ring-1 ring-current' : 'text-gray-400 bg-gray-100 hover:bg-gray-200'}`}>
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {/* Assignee */}
+          {members.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>Assignee</span>
+              {members.map(m => (
+                <button key={m.id} type="button"
+                  onClick={() => setFilterAssigneeIds(prev => prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id])}
+                  title={m.name}
+                  style={{ opacity: filterAssigneeIds.includes(m.id) ? 1 : 0.35, transition: 'opacity 0.15s' }}
+                  className="hover:opacity-80">
+                  <img src={m.avatar_url} className="w-5 h-5 rounded-full" alt={m.name} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Due date */}
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>Due</span>
+            <select
+              value={filterDueDate ?? ''}
+              onChange={e => setFilterDueDate((e.target.value || null) as typeof filterDueDate)}
+              style={{ fontSize: 12, color: filterDueDate ? 'var(--ink)' : 'var(--muted)', background: 'transparent', border: 'none', borderBottom: '1px solid var(--rule)', outline: 'none', fontFamily: 'inherit', cursor: 'pointer', paddingBottom: 2 }}>
+              <option value="">Any</option>
+              <option value="overdue">Overdue</option>
+              <option value="today">Today</option>
+              <option value="this_week">This week</option>
+            </select>
+          </div>
+
+          {/* Clear */}
+          {(filterAssigneeIds.length > 0 || filterPriorities.length > 0 || filterDueDate) && (
+            <button type="button"
+              onClick={() => { setFilterAssigneeIds([]); setFilterPriorities([]); setFilterDueDate(null); }}
+              style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}>
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Board canvas */}
       <div className="flex-1 overflow-x-auto p-6">

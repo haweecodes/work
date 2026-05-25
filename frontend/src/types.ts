@@ -12,6 +12,10 @@ export interface User {
   name: string;
   email: string;
   avatar_url?: string;
+  mobile_number?: string | null;
+  working_hours?: string | null;
+  status_emoji?: string | null;
+  status_text?: string | null;
 }
 
 export interface Workspace {

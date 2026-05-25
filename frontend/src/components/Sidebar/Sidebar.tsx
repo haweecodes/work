@@ -6,6 +6,7 @@ import useWorkspaceStore from '../../store/workspaceStore';
 import useBoardStore from '../../store/boardStore';
 import useUIStore from '../../store/uiStore';
 import useNotificationStore from '../../store/notificationStore';
+import UserAvatar from '../UserAvatar';
 import client from '../../api/client';
 import type { Workspace, Channel, DmThread } from '../../types';
 
@@ -104,6 +105,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const openCreateBoard     = useUIStore(s => s.openCreateBoard);
   const openInvite          = useUIStore(s => s.openInvite);
   const openSettings        = useUIStore(s => s.openSettings);
+  const openUserSettings    = useUIStore(s => s.openUserSettings);
   const isAdmin             = useWorkspaceStore(s => s.isAdmin);
   const channelUnread       = useUIStore(s => s.channelUnread);
   const dmUnread            = useUIStore(s => s.dmUnread);
@@ -291,6 +293,11 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
                   >
                     {m.name}
                   </span>
+                  {m.status_emoji && (
+                    <span style={{ fontSize: 12, flexShrink: 0 }} title={m.status_text ?? undefined}>
+                      {m.status_emoji}
+                    </span>
+                  )}
                   {/* DM unread: dot (personal signal) not a count */}
                   {unread > 0 && (
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink)', flexShrink: 0, display: 'inline-block' }} />
@@ -412,13 +419,25 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {/* User row */}
         <div className="flex items-center justify-between pt-3 mt-1" style={{ borderTop: '1px solid var(--rule-2)' }}>
-          <div className="flex items-center gap-2 min-w-0">
-            <img src={user?.avatar_url} className="w-5 h-5 rounded-full flex-shrink-0" alt={user?.name} />
+          <button
+            onClick={() => openUserSettings()}
+            className="flex items-center gap-2 min-w-0 text-left hover:opacity-80 transition-opacity"
+            title={user?.status_text ? `${user.status_emoji ?? ''} ${user.status_text}`.trim() : 'Account settings'}
+          >
+            <UserAvatar
+              src={user?.avatar_url}
+              name={user?.name}
+              size={20}
+              statusEmoji={user?.status_emoji}
+              statusText={user?.status_text}
+            />
             <span className="truncate" style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>
               {user?.name}
             </span>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2D8A4F', flexShrink: 0, display: 'inline-block' }} />
-          </div>
+            {!user?.status_emoji && (
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2D8A4F', flexShrink: 0, display: 'inline-block' }} />
+            )}
+          </button>
           <button
             onClick={() => { logout(); navigate('/login'); }}
             title="Sign out"

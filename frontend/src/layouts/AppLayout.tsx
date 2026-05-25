@@ -13,6 +13,7 @@ const InviteModal             = lazy(() => import('../components/InviteModal'));
 const CreateBoardModal        = lazy(() => import('../components/CreateBoardModal'));
 const SearchModal             = lazy(() => import('../components/SearchModal'));
 const WorkspaceSettingsModal  = lazy(() => import('../components/WorkspaceSettingsModal'));
+const UserSettingsModal       = lazy(() => import('../components/UserSettingsModal'));
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -30,6 +31,8 @@ export default function AppLayout() {
   const closeSidebar       = useUIStore(s => s.closeSidebar);
   const showSettings       = useUIStore(s => s.showSettings);
   const closeSettings      = useUIStore(s => s.closeSettings);
+  const showUserSettings   = useUIStore(s => s.showUserSettings);
+  const closeUserSettings  = useUIStore(s => s.closeUserSettings);
 
   // When a task is selected, close any other open sidebar
   useEffect(() => {
@@ -159,6 +162,11 @@ export default function AppLayout() {
       {showSearch && (
         <Suspense fallback={null}>
           <SearchModal onClose={() => setShowSearch(false)} />
+        </Suspense>
+      )}
+      {showUserSettings && (
+        <Suspense fallback={null}>
+          <UserSettingsModal onClose={closeUserSettings} />
         </Suspense>
       )}
     </div>

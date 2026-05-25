@@ -69,6 +69,10 @@ export async function initDb(): Promise<void> {
     await sql`CREATE INDEX IF NOT EXISTS idx_tasks_board_id          ON tasks(board_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_columns_board_id        ON columns(board_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_channels_workspace_id   ON channels(workspace_id)`;
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile_number TEXT`;
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_hours TEXT`;
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_emoji TEXT`;
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_text TEXT`;
 
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {

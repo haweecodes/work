@@ -6,6 +6,7 @@ const router = Router();
 router.get('/:workspaceId',                           channel.list);
 router.post('/',                                      channel.create);
 router.patch('/:channelId/archive',                   channel.archive);
+router.get('/:channelId/members',  requireChannelMember('channelId'), channel.getChannelMembers);
 router.get('/messages/:channelId',  requireChannelMember('channelId'), channel.getMessages);
 router.post('/messages',                              channel.sendMessage);
 router.patch('/messages/:id',                         channel.editMessage);

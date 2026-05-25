@@ -194,12 +194,7 @@ export async function deleteTask(req: Request, res: Response) {
     const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    const subtaskCount = await taskSvc.getSubtaskCount(String(req.params.id));
-    if (subtaskCount > 0) {
-      return res.status(400).json({ error: `Cannot delete a task that has ${subtaskCount} subtask${subtaskCount > 1 ? 's' : ''}. Delete or reassign the subtasks first.` });
-    }
-
-    await taskSvc.deleteTask(String(req.params.id));
+    await taskSvc.deleteTaskCascade(String(req.params.id));
     if (io) io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: String(req.params.id) });
     res.json({ success: true });
   } catch {

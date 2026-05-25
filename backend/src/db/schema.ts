@@ -1,12 +1,16 @@
 import { pgTable, text, integer, timestamp, primaryKey } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
-  id:            text('id').primaryKey(),
-  name:          text('name').notNull(),
-  email:         text('email').notNull().unique(),
-  password_hash: text('password_hash').notNull(),
-  avatar_url:    text('avatar_url'),
-  created_at:    timestamp('created_at').defaultNow(),
+  id:             text('id').primaryKey(),
+  name:           text('name').notNull(),
+  email:          text('email').notNull().unique(),
+  password_hash:  text('password_hash').notNull(),
+  avatar_url:     text('avatar_url'),
+  mobile_number:  text('mobile_number'),
+  working_hours:  text('working_hours'),
+  status_emoji:   text('status_emoji'),
+  status_text:    text('status_text'),
+  created_at:     timestamp('created_at').defaultNow(),
 });
 
 export const workspaces = pgTable('workspaces', {

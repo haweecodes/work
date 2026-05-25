@@ -121,7 +121,8 @@ export default function ChannelView() {
     }
   }, [channelId]);
 
-  const tasksActive = activeSidebar?.type === 'tasks';
+  const tasksActive       = activeSidebar?.type === 'tasks';
+  const channelInfoActive = activeSidebar?.type === 'channel-info';
 
   return (
     <div className="flex h-full relative">
@@ -132,9 +133,18 @@ export default function ChannelView() {
           <div>
             <div className="flex items-baseline gap-2">
               <span style={{ color: 'var(--faint)', fontWeight: 400, marginRight: 2 }}>#</span>
-              <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}>
+              <button
+                onClick={() => channelId && (channelInfoActive ? closeSidebar() : openSidebar({ type: 'channel-info', channelId }))}
+                style={{
+                  fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em',
+                  color: channelInfoActive ? 'var(--primary-500, #6366f1)' : 'var(--ink)',
+                  background: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0,
+                }}
+                onMouseEnter={e => { if (!channelInfoActive) e.currentTarget.style.color = 'var(--primary-500, #6366f1)'; }}
+                onMouseLeave={e => { if (!channelInfoActive) e.currentTarget.style.color = 'var(--ink)'; }}
+              >
                 {channel?.name || 'Loading…'}
-              </h1>
+              </button>
               {channel?.is_archived === 1 && (
                 <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>
                   Archived

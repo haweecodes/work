@@ -49,6 +49,22 @@ export async function archiveChannel(channelId: string) {
   await db.update(channels).set({ is_archived: 1 }).where(eq(channels.id, channelId));
 }
 
+export async function getChannelMembers(channelId: string) {
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      avatar_url: users.avatar_url,
+      status_emoji: users.status_emoji,
+      status_text: users.status_text,
+    })
+    .from(channel_members)
+    .innerJoin(users, eq(channel_members.user_id, users.id))
+    .where(eq(channel_members.channel_id, channelId))
+    .orderBy(users.name);
+}
+
 export async function getChannelMemberIds(channelId: string) {
   const rows = await db.select({ user_id: channel_members.user_id })
     .from(channel_members)

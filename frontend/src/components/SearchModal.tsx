@@ -27,6 +27,7 @@ interface SearchResults { messages: SearchMessage[]; tasks: SearchTask[]; }
 type PaletteItem =
   | { kind: 'channel'; id: string; name: string; isPrivate: boolean }
   | { kind: 'dm';      threadId: string; name: string }
+  | { kind: 'new-dm';  userId: string; name: string }
   | { kind: 'board';   id: string; name: string }
   | { kind: 'action';  label: string; onRun: () => void }
   | { kind: 'message'; item: SearchMessage }
@@ -78,6 +79,12 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
     }),
   [dmThreads, user?.id]);
 
+  const existingDmUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    dmThreads.forEach(t => t.participants?.forEach(p => { if (p.id !== user?.id) ids.add(p.id); }));
+    return ids;
+  }, [dmThreads, user?.id]);
+
   const boardItems: PaletteItem[] = useMemo(() =>
     boards.map(b => ({ kind: 'board', id: b.id, name: b.name })),
   [boards]);
@@ -113,6 +120,13 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
   const q = term.trim().toLowerCase();
   const hasQuery = q.length >= 2;
 
+  const newDmItems: PaletteItem[] = useMemo(() =>
+    members
+      .filter(m => m.id !== user?.id && !existingDmUserIds.has(m.id))
+      .filter(m => !q || m.name.toLowerCase().includes(q))
+      .map(m => ({ kind: 'new-dm', userId: m.id, name: m.name })),
+  [members, user?.id, existingDmUserIds, q]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // When a scope is active, hide unrelated sections even if term is short
   const showChannels = !scope || scope === 'channel';
   const showDms      = !scope || scope === 'dm';
@@ -124,8 +138,11 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
   const filteredChannels = showChannels
     ? (q ? channelItems.filter(c => (c as any).name.toLowerCase().includes(q)) : channelItems)
     : [];
-  const filteredDms = showDms
-    ? (q ? dmItems.filter(d => (d as any).name.toLowerCase().includes(q)) : dmItems)
+  const filteredDms: PaletteItem[] = showDms
+    ? [
+        ...(q ? dmItems.filter(d => (d as any).name.toLowerCase().includes(q)) : dmItems),
+        ...(q ? newDmItems : []),
+      ]
     : [];
   const filteredBoards = showBoards
     ? (q ? boardItems.filter(b => (b as any).name.toLowerCase().includes(q)) : boardItems)
@@ -183,10 +200,17 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
 
   // ── Execute ────────────────────────────────────────────────────────────────
 
-  const execute = useCallback((item: PaletteItem) => {
+  const execute = useCallback(async (item: PaletteItem) => {
     switch (item.kind) {
       case 'channel': navigate(`/channel/${item.id}`); break;
       case 'dm':      navigate(`/dm/${item.threadId}`); break;
+      case 'new-dm': {
+        try {
+          const { data } = await client.post<{ id: string }>('/api/dms/threads', { other_user_id: item.userId });
+          navigate(`/dm/${data.id}`);
+        } catch { /* navigation silently skipped on error */ }
+        break;
+      }
       case 'board':   navigate(`/board/${item.id}`); break;
       case 'action':  item.onRun(); break;
       case 'message':
@@ -235,6 +259,17 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
           style={{ background: bg }}>
           <MessageCircle size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />
           <span style={{ fontSize: 14, color: isActive ? 'var(--ink)' : 'var(--ink-2)' }}>{item.name}</span>
+        </button>
+      );
+    }
+
+    if (item.kind === 'new-dm') {
+      return (
+        <button key={`new-dm-${item.userId}`} data-idx={idx} onClick={() => execute(item)} onMouseEnter={() => setActiveIndex(idx)}
+          className="w-full text-left px-5 py-2.5 flex items-center gap-2.5"
+          style={{ background: bg }}>
+          <Plus size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />
+          <span style={{ fontSize: 14, color: isActive ? 'var(--ink)' : 'var(--ink-2)' }}>Message {item.name}</span>
         </button>
       );
     }

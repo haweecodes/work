@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
+import UserAvatar from '../components/UserAvatar';
 import useUIStore from '../store/uiStore';
 import useBoardStore from '../store/boardStore';
 import { useChatMessages } from '../hooks/useChatMessages';
@@ -81,13 +82,36 @@ export default function DMView() {
           style={{ padding: '22px 40px 18px', borderBottom: '1px solid var(--rule)', background: 'var(--paper)' }}>
           <div className="flex items-center gap-3">
             <div className="flex -space-x-2">
-              {otherParticipants.slice(0, 2).map(p => (
-                <img key={p.id} src={p.avatar_url} className="w-7 h-7 rounded-full" style={{ border: '1px solid var(--paper)' }} alt={p.name} />
-              ))}
+              {otherParticipants.slice(0, 2).map((p, i) => {
+                const live = members.find(m => m.id === p.id);
+                return (
+                  <UserAvatar
+                    key={p.id}
+                    src={p.avatar_url}
+                    name={p.name}
+                    size={28}
+                    statusEmoji={live?.status_emoji}
+                    statusText={live?.status_text}
+                    style={{ border: '1px solid var(--paper)', zIndex: i === 0 ? 1 : 0 }}
+                  />
+                );
+              })}
             </div>
             <div>
               <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}>{title}</h1>
-              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Direct message</p>
+              {otherParticipants.length === 1 && (() => {
+                const live = members.find(m => m.id === otherParticipants[0].id);
+                return live?.status_emoji || live?.status_text ? (
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    {live.status_emoji} {live.status_text}
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Direct message</p>
+                );
+              })()}
+              {otherParticipants.length !== 1 && (
+                <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Direct message</p>
+              )}
             </div>
           </div>
           <div className="flex items-baseline gap-6">
@@ -113,9 +137,20 @@ export default function DMView() {
           {!loading && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-6">
               <div className="flex -space-x-2 mb-3">
-                {otherParticipants.slice(0, 2).map(p => (
-                  <img key={p.id} src={p.avatar_url} className="w-12 h-12 rounded-full border-2 border-white" alt={p.name} />
-                ))}
+                {otherParticipants.slice(0, 2).map((p, i) => {
+                  const live = members.find(m => m.id === p.id);
+                  return (
+                    <UserAvatar
+                      key={p.id}
+                      src={p.avatar_url}
+                      name={p.name}
+                      size={48}
+                      statusEmoji={live?.status_emoji}
+                      statusText={live?.status_text}
+                      style={{ border: '2px solid white', zIndex: i === 0 ? 1 : 0 }}
+                    />
+                  );
+                })}
               </div>
               <h3 className="font-semibold text-gray-900 mb-1">Start a conversation</h3>
               <p className="text-sm text-gray-500">This is the beginning of your DM with <strong>{title}</strong>.</p>

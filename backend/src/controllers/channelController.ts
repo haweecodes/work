@@ -59,6 +59,17 @@ export async function archive(req: Request, res: Response) {
   }
 }
 
+export async function getChannelMembers(req: Request, res: Response) {
+  try {
+    const channel = await channelSvc.getChannelById(String(req.params.channelId), req.workspaceId!);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const members = await channelSvc.getChannelMembers(String(req.params.channelId));
+    res.json(members);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 export async function getMessages(req: Request, res: Response) {
   const limit = Math.min(Number(req.query.limit) || 50, 100);
   const before = req.query.before ? String(req.query.before) : undefined;

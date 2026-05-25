@@ -11,7 +11,7 @@ import { createServer } from 'http';
 import { initDb } from './db';
 import { initSocket } from './socket';
 
-import authRoutes from './routes/auth';
+import authRoutes, { setIo as setAuthIo } from './routes/auth';
 import workspaceRoutes, { setIo as setWorkspaceIo } from './routes/workspaces';
 import channelRoutes, { setIo as setChannelIo } from './routes/channels';
 import boardRoutes from './routes/boards';
@@ -48,6 +48,7 @@ app.use(express.json());
 
 // Init Socket.IO — passes the same allowed origins so WS and HTTP stay in sync
 const io = initSocket(server, allowedOrigins);
+setAuthIo(io);
 setWorkspaceIo(io);
 setChannelIo(io);
 setTaskIo(io);
