@@ -86,6 +86,20 @@ export async function resolveAlert(req: Request, res: Response) {
 
     if (notif?.reference_id) {
       await notifService.resolveAlertsByReference(req.user.id, notif.reference_id, notif.workspace_id!);
+
+      // Notify the initiator that their alert was acknowledged
+      const acknowledger = await notifService.getSenderInfo(req.user.id);
+      const acknowledgerName = acknowledger?.name ?? 'Someone';
+      const feedbackMsg = `${acknowledgerName} acknowledged your priority alert`;
+      const fid = uuidv4();
+      const initiatorId = notif.reference_id;
+      await notifService.createNotification({
+        id: fid, user_id: initiatorId, type: 'system',
+        message: feedbackMsg, workspace_id: notif.workspace_id!, is_read: 0,
+      });
+      if (io) io.to(`user:${initiatorId}`).emit('notification', {
+        id: fid, type: 'system', message: feedbackMsg, workspace_id: notif.workspace_id,
+      });
     } else {
       await notifService.resolveAlertById(String(req.params.id), req.user.id);
     }
