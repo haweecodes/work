@@ -180,6 +180,17 @@ export interface Message {
   mention_priorities?: MentionPriority[];
 }
 
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author_id: string;
+  author_name: string;
+  author_avatar?: string;
+  content: string;
+  created_at: string;
+  edited_at?: string | null;
+}
+
 export interface TaskHistoryEntry {
   id: string;
   task_id: string;

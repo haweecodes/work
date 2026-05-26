@@ -193,6 +193,15 @@ export const task_history = pgTable('task_history', {
   created_at:   timestamp('created_at').defaultNow(),
 });
 
+export const task_comments = pgTable('task_comments', {
+  id:         text('id').primaryKey(),
+  task_id:    text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  author_id:  text('author_id').notNull().references(() => users.id),
+  content:    text('content').notNull(),
+  created_at: timestamp('created_at').defaultNow(),
+  edited_at:  timestamp('edited_at'),
+});
+
 // ── Inferred types (source of truth for the entire backend) ───────────────────
 export type Team           = typeof teams.$inferSelect;
 export type NewTeam        = typeof teams.$inferInsert;
@@ -222,3 +231,5 @@ export type NewTaskUpdateResponse = typeof task_update_responses.$inferInsert;
 export type WorkspaceSettings    = typeof workspace_settings.$inferSelect;
 export type TaskHistory          = typeof task_history.$inferSelect;
 export type NewTaskHistory       = typeof task_history.$inferInsert;
+export type TaskComment          = typeof task_comments.$inferSelect;
+export type NewTaskComment       = typeof task_comments.$inferInsert;

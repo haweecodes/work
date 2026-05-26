@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { eq, and, asc, sql, inArray, desc } from 'drizzle-orm';
-import { db, tasks, task_assignees, boards, columns, messages, users, notifications, teams, team_members, task_history, type NewTask, type NewTaskHistory } from '../db';
+import { db, tasks, task_assignees, boards, columns, messages, users, notifications, teams, team_members, task_history, task_comments, type NewTask, type NewTaskHistory } from '../db';
 
 export async function getTaskById(id: string, workspaceId: string) {
   const rows = await db.execute(sql`
@@ -233,7 +233,6 @@ export async function insertTaskHistory(entry: Omit<NewTaskHistory, 'id' | 'crea
 }
 
 export async function getTaskHistory(taskId: string, workspaceId: string) {
-  // Verify task belongs to workspace before returning history
   const rows = await db.execute(sql`
     SELECT th.id, th.task_id, th.actor_id, th.actor_name, th.actor_avatar,
            th.action, th.field, th.old_value, th.new_value, th.created_at
@@ -243,6 +242,73 @@ export async function getTaskHistory(taskId: string, workspaceId: string) {
     WHERE th.task_id = ${taskId} AND b.workspace_id = ${workspaceId}
     ORDER BY th.created_at DESC
     LIMIT 100
+  `);
+  return (rows.rows ?? rows) as any[];
+}
+
+export async function listComments(taskId: string, workspaceId: string) {
+  const rows = await db.execute(sql`
+    SELECT tc.id, tc.task_id, tc.author_id, tc.content, tc.created_at, tc.edited_at,
+           u.name as author_name, u.avatar_url as author_avatar
+    FROM task_comments tc
+    JOIN users u ON tc.author_id = u.id
+    JOIN tasks t ON tc.task_id = t.id
+    JOIN boards b ON t.board_id = b.id
+    WHERE tc.task_id = ${taskId} AND b.workspace_id = ${workspaceId}
+    ORDER BY tc.created_at ASC
+  `);
+  return (rows.rows ?? rows) as any[];
+}
+
+export async function addComment(taskId: string, authorId: string, content: string) {
+  const id = uuidv4();
+  await db.insert(task_comments).values({ id, task_id: taskId, author_id: authorId, content });
+  const rows = await db.execute(sql`
+    SELECT tc.id, tc.task_id, tc.author_id, tc.content, tc.created_at, tc.edited_at,
+           u.name as author_name, u.avatar_url as author_avatar
+    FROM task_comments tc
+    JOIN users u ON tc.author_id = u.id
+    WHERE tc.id = ${id}
+  `);
+  return ((rows.rows ?? rows) as any[])[0];
+}
+
+export async function editComment(commentId: string, authorId: string, content: string) {
+  await db.update(task_comments)
+    .set({ content, edited_at: new Date() })
+    .where(and(eq(task_comments.id, commentId), eq(task_comments.author_id, authorId)));
+}
+
+export async function deleteComment(commentId: string, authorId: string) {
+  await db.delete(task_comments)
+    .where(and(eq(task_comments.id, commentId), eq(task_comments.author_id, authorId)));
+}
+
+export async function checkOverdueNotified(taskId: string, since: string): Promise<boolean> {
+  const rows = await db.execute(sql`
+    SELECT 1 FROM notifications
+    WHERE reference_id = ${taskId} AND type = 'system' AND message LIKE '%is overdue%'
+    AND created_at > ${since}
+    LIMIT 1
+  `);
+  return ((rows.rows ?? rows) as any[]).length > 0;
+}
+
+export async function markOverdueNotified(taskId: string) {
+  await db.execute(sql`UPDATE tasks SET overdue_notified_at = NOW() WHERE id = ${taskId}`);
+}
+
+export async function getTasksForUser(userId: string, workspaceId: string) {
+  const rows = await db.execute(sql`
+    SELECT t.id, t.board_id, t.column_id, t.title, t.priority, t.due_date,
+           t.task_key, t.task_number, t.created_at,
+           b.name as board_name, c.title as column_title
+    FROM task_assignees ta
+    JOIN tasks t ON ta.task_id = t.id
+    JOIN boards b ON t.board_id = b.id
+    JOIN columns c ON t.column_id = c.id
+    WHERE ta.user_id = ${userId} AND b.workspace_id = ${workspaceId}
+    ORDER BY t.due_date ASC NULLS LAST, t.created_at DESC
   `);
   return (rows.rows ?? rows) as any[];
 }

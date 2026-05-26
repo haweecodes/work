@@ -5,7 +5,8 @@ import { LayoutDashboard, Flag, Layers, Calendar, Users, AlignLeft, ListTree, Gi
 import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 import useBoardStore from '../store/boardStore';
-import type { Column, TaskAssignee, TaskHistoryEntry } from '../types';
+import useAuthStore from '../store/authStore';
+import type { Column, TaskAssignee, TaskHistoryEntry, TaskComment } from '../types';
 
 interface PriorityStyle {
   badge: string;
@@ -23,6 +24,7 @@ const PRIORITY_STYLES: Record<string, PriorityStyle> = {
 export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
+  const currentUser        = useAuthStore(s => s.user);
   const members            = useWorkspaceStore(s => s.members);
   const teams              = useWorkspaceStore(s => s.teams);
   const taskUpdateStatuses = useWorkspaceStore(s => s.taskUpdateStatuses);
@@ -62,6 +64,15 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
   // Column matching state when moving to a different board
   const [columnMatchState, setColumnMatchState] = useState<'matched' | 'unmatched' | null>(null);
+
+  // Comments
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
 
   // Task history
   const [history, setHistory] = useState<TaskHistoryEntry[]>([]);
@@ -138,8 +149,23 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   useEffect(() => {
     setShowHistory(false);
     setHistory([]);
+    setShowComments(false);
+    setComments([]);
+    setNewComment('');
+    setEditingCommentId(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id]);
+
+  // Fetch comments only when section is expanded
+  useEffect(() => {
+    if (!showComments || !selectedTask) return;
+    setCommentsLoading(true);
+    client.get<TaskComment[]>(`/api/tasks/${selectedTask.id}/comments`)
+      .then(({ data }) => setComments(data))
+      .catch(() => {})
+      .finally(() => setCommentsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showComments, selectedTask?.id]);
 
   // Check for pending update requests for this task
   useEffect(() => {
@@ -340,6 +366,15 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
     return `${days}d ago`;
   }
 
+  const isOverdue = (() => {
+    if (!form?.due_date) return false;
+    const due = new Date(form.due_date);
+    due.setHours(23, 59, 59, 999);
+    if (due >= new Date()) return false;
+    const lastColId = [...columns].sort((a, b) => (b.position ?? 0) - (a.position ?? 0))[0]?.id;
+    return form.column_id !== lastColId;
+  })();
+
   if (!selectedTask) return null;
   if (loading || !form) return (
     <div className="h-full flex flex-col animate-pulse p-5 space-y-4">
@@ -379,6 +414,11 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
               onMouseLeave={e => { if (!copiedKey) e.currentTarget.style.color = 'var(--muted)'; }}>
               {copiedKey ? `${selectedTask.task_key} ✓` : selectedTask.task_key}
             </button>
+          )}
+          {isOverdue && (
+            <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, padding: '2px 6px' }}>
+              Overdue
+            </span>
           )}
         </div>
         <button
@@ -686,6 +726,128 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
             </div>
           </div>
         )}
+
+        {/* Comments */}
+        <div className="pt-2" style={{ borderTop: '1px solid var(--rule)' }}>
+          <button
+            type="button"
+            onClick={() => setShowComments(v => !v)}
+            className="flex items-center gap-1.5 w-full"
+            style={{ marginBottom: showComments ? 12 : 0 }}
+          >
+            <MessageSquare size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />
+            <span className="label" style={{ marginBottom: 0 }}>Comments</span>
+            {comments.length > 0 && !showComments && (
+              <span style={{ fontSize: 10, color: 'var(--muted)', marginLeft: 4 }}>({comments.length})</span>
+            )}
+            <svg
+              style={{ marginLeft: 'auto', color: 'var(--faint)', transition: 'transform 150ms', transform: showComments ? 'rotate(180deg)' : 'rotate(0deg)' }}
+              width={12} height={12} viewBox="0 0 12 12" fill="none"
+            >
+              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          {showComments && (
+            <>
+              {commentsLoading ? (
+                <div className="space-y-2 mb-3">
+                  {[1,2].map(i => <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />)}
+                </div>
+              ) : comments.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--faint)', marginBottom: 12 }}>No comments yet</p>
+              ) : (
+                <div className="space-y-0 mb-3">
+                  {comments.map(c => (
+                    <div key={c.id} className="py-2.5" style={{ borderBottom: '1px solid var(--rule-2)' }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {c.author_avatar
+                          ? <img src={c.author_avatar} className="w-5 h-5 rounded-full flex-shrink-0" />
+                          : <div className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-white" style={{ fontSize: 9, background: '#6366f1' }}>
+                              {c.author_name.charAt(0).toUpperCase()}
+                            </div>
+                        }
+                        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{c.author_name}</span>
+                        <span style={{ fontSize: 11, color: 'var(--faint)', marginLeft: 'auto' }} title={format(new Date(c.created_at), 'MMM d, yyyy HH:mm')}>
+                          {timeAgo(c.created_at)}{c.edited_at ? ' (edited)' : ''}
+                        </span>
+                      </div>
+                      {editingCommentId === c.id ? (
+                        <div className="flex flex-col gap-2 mt-1">
+                          <textarea
+                            autoFocus
+                            className="input resize-none"
+                            rows={2}
+                            value={editingCommentText}
+                            onChange={e => setEditingCommentText(e.target.value)}
+                          />
+                          <div className="flex items-baseline gap-3">
+                            <button className="btn-primary" style={{ fontSize: 12 }}
+                              disabled={!editingCommentText.trim()}
+                              onClick={async () => {
+                                await client.patch(`/api/tasks/${selectedTask!.id}/comments/${c.id}`, { content: editingCommentText.trim() });
+                                setComments(prev => prev.map(x => x.id === c.id ? { ...x, content: editingCommentText.trim(), edited_at: new Date().toISOString() } : x));
+                                setEditingCommentId(null);
+                              }}>Save</button>
+                            <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setEditingCommentId(null)}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2">
+                          <p style={{ fontSize: 13, color: 'var(--ink-2)', flex: 1, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{c.content}</p>
+                          {c.author_id === currentUser?.id && (
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button style={{ fontSize: 11, color: 'var(--faint)' }}
+                                onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                                onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}
+                                onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.content); }}>
+                                Edit
+                              </button>
+                              <button style={{ fontSize: 11, color: 'var(--faint)' }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#dc2626')}
+                                onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}
+                                onClick={async () => {
+                                  await client.delete(`/api/tasks/${selectedTask!.id}/comments/${c.id}`);
+                                  setComments(prev => prev.filter(x => x.id !== c.id));
+                                }}>
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={async e => {
+                e.preventDefault();
+                if (!newComment.trim() || submittingComment) return;
+                setSubmittingComment(true);
+                try {
+                  const { data } = await client.post(`/api/tasks/${selectedTask!.id}/comments`, { content: newComment.trim() });
+                  setComments(prev => [...prev, data]);
+                  setNewComment('');
+                } finally { setSubmittingComment(false); }
+              }} className="flex flex-col gap-2">
+                <textarea
+                  className="input resize-none"
+                  rows={2}
+                  placeholder="Add a comment…"
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  onKeyDown={e => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); e.currentTarget.form?.requestSubmit(); }
+                  }}
+                />
+                <button type="submit" className="btn-primary self-end" disabled={!newComment.trim() || submittingComment}>
+                  {submittingComment ? '…' : 'Comment →'}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
 
         {/* Activity / History */}
         <div className="pt-2" style={{ borderTop: '1px solid var(--rule)' }}>

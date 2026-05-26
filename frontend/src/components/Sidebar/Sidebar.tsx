@@ -339,6 +339,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         <section>
           <SectionLabel>Workspace</SectionLabel>
           <div className="space-y-0">
+            <NavItem to="/my-tasks" label="My Tasks" />
             <NavItem to="/docs" label="Docs" />
             <NavItem to="/calendar" label="Calendar" />
           </div>

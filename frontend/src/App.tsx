@@ -19,6 +19,7 @@ const JoinWorkspace   = lazy(() => import('./pages/JoinWorkspace'));
 const TaskRedirect    = lazy(() => import('./pages/TaskRedirect'));
 const DocsView        = lazy(() => import('./pages/DocsView'));
 const CalendarView    = lazy(() => import('./pages/CalendarView'));
+const MyTasksView     = lazy(() => import('./pages/MyTasksView'));
 
 // ── Fallbacks ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,9 @@ export default function App() {
             } />
             <Route path="calendar" element={
               <Suspense fallback={<ChannelLoader />}><CalendarView /></Suspense>
+            } />
+            <Route path="my-tasks" element={
+              <Suspense fallback={<BoardLoader />}><MyTasksView /></Suspense>
             } />
           </Route>
 

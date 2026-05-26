@@ -98,6 +98,30 @@ export async function create(req: Request, res: Response) {
 export async function getById(req: Request, res: Response) {
   const task = await taskSvc.getTaskForDetail(String(req.params.id), req.workspaceId!);
   if (!task) return res.status(404).json({ error: 'Task not found' });
+
+  // Fire overdue notification for assignees (at most once per 24h per task)
+  if (task.due_date && !task.overdue_notified_at) {
+    const now = new Date();
+    const due = new Date(task.due_date);
+    if (due < now) {
+      const lastColId = await taskSvc.getLastColumnId(task.board_id);
+      const isDone = lastColId && task.column_id === lastColId;
+      if (!isDone) {
+        const recentCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+        const alreadyNotified = await taskSvc.checkOverdueNotified(String(req.params.id), recentCutoff);
+        if (!alreadyNotified) {
+          await taskSvc.markOverdueNotified(String(req.params.id));
+          const assignees = await taskSvc.getTaskAssignees(String(req.params.id));
+          for (const { user_id } of assignees) {
+            const msg = `"${task.title}" is overdue`;
+            const notifId = await taskSvc.createAssignmentNotification(user_id, 'system', String(req.params.id), msg, req.workspaceId!);
+            if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'system', message: msg, reference_id: String(req.params.id), reference_type: 'task', workspace_id: req.workspaceId });
+          }
+        }
+      }
+    }
+  }
+
   res.json(task);
 }
 
@@ -336,6 +360,73 @@ export async function getHistory(req: Request, res: Response) {
   try {
     const history = await taskSvc.getTaskHistory(String(req.params.id), req.workspaceId!);
     res.json(history);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function listComments(req: Request, res: Response) {
+  try {
+    const comments = await taskSvc.listComments(String(req.params.id), req.workspaceId!);
+    res.json(comments);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function addComment(req: Request, res: Response) {
+  try {
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+
+    const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const comment = await taskSvc.addComment(String(req.params.id), req.user.id, content.trim());
+
+    // Notify assignees
+    const assignees = await taskSvc.getTaskAssignees(String(req.params.id));
+    const actor = await taskSvc.getActorInfo(req.user.id);
+    for (const { user_id } of assignees) {
+      if (user_id === req.user.id) continue;
+      const msg = `${actor.name} commented on "${task.title}"`;
+      const notifId = await taskSvc.createAssignmentNotification(user_id, 'system', String(req.params.id), msg, req.workspaceId!);
+      if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'system', message: msg, reference_id: String(req.params.id), reference_type: 'task', workspace_id: req.workspaceId });
+    }
+
+    if (io) io.to(`board:${task.board_id}`).emit('task_comment', { task_id: String(req.params.id), comment });
+
+    res.status(201).json(comment);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function editComment(req: Request, res: Response) {
+  try {
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+    await taskSvc.editComment(String(req.params.commentId), req.user.id, content.trim());
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function deleteComment(req: Request, res: Response) {
+  try {
+    await taskSvc.deleteComment(String(req.params.commentId), req.user.id);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function listMine(req: Request, res: Response) {
+  if (req.query.scope !== 'mine') return res.status(400).json({ error: 'scope=mine required' });
+  try {
+    const tasks = await taskSvc.getTasksForUser(req.user.id, req.workspaceId!);
+    res.json(tasks);
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
