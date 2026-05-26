@@ -57,6 +57,19 @@ export const dm_participants = pgTable('dm_participants', {
   user_id:   text('user_id').notNull().references(() => users.id),
 }, (t) => [primaryKey({ columns: [t.thread_id, t.user_id] })]);
 
+export const teams = pgTable('teams', {
+  id:           text('id').primaryKey(),
+  workspace_id: text('workspace_id').notNull().references(() => workspaces.id),
+  name:         text('name').notNull(),
+  created_by:   text('created_by').notNull().references(() => users.id),
+  created_at:   timestamp('created_at').defaultNow(),
+});
+
+export const team_members = pgTable('team_members', {
+  team_id: text('team_id').notNull().references(() => teams.id),
+  user_id: text('user_id').notNull().references(() => users.id),
+}, (t) => [primaryKey({ columns: [t.team_id, t.user_id] })]);
+
 export const boards = pgTable('boards', {
   id:            text('id').primaryKey(),
   workspace_id:  text('workspace_id').notNull().references(() => workspaces.id),
@@ -64,6 +77,7 @@ export const boards = pgTable('boards', {
   project_key:   text('project_key').notNull(),
   task_sequence: integer('task_sequence').default(0),
   created_by:    text('created_by').references(() => users.id),
+  team_id:       text('team_id').references(() => teams.id),
   created_at:    timestamp('created_at').defaultNow(),
 });
 
@@ -165,6 +179,9 @@ export const task_update_responses = pgTable('task_update_responses', {
 });
 
 // ── Inferred types (source of truth for the entire backend) ───────────────────
+export type Team           = typeof teams.$inferSelect;
+export type NewTeam        = typeof teams.$inferInsert;
+export type TeamMember     = typeof team_members.$inferSelect;
 
 export type User               = typeof users.$inferSelect;
 export type NewUser            = typeof users.$inferInsert;

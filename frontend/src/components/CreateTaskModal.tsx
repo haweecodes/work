@@ -22,6 +22,7 @@ interface CreateTaskModalProps {
 
 export default function CreateTaskModal({ onClose, prefilledMessage, prefilledData, boardId, createInColumn }: CreateTaskModalProps) {
   const members      = useWorkspaceStore(s => s.members);
+  const teams        = useWorkspaceStore(s => s.teams);
   const boards       = useBoardStore(s => s.boards);
   const storeColumns = useBoardStore(s => s.columns);
 
@@ -170,8 +171,12 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
 
           <div>
             <label className="label">Assignees</label>
-            <div className="flex flex-wrap gap-2">
-              {members.map(m => (
+            {(() => {
+              const boardTeam = teams.find(t => t.id === boards.find(b => b.id === selectedBoardId)?.team_id);
+              const teamMemberIds = new Set(boardTeam?.members.map(m => m.id) ?? []);
+              const teamMembers  = members.filter(m => teamMemberIds.has(m.id));
+              const otherMembers = members.filter(m => !teamMemberIds.has(m.id));
+              const renderChip = (m: typeof members[0]) => (
                 <button key={m.id} type="button"
                   onClick={() => toggleAssignee(m.id)}
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors
@@ -180,8 +185,21 @@ export default function CreateTaskModal({ onClose, prefilledMessage, prefilledDa
                   <img src={m.avatar_url} className="w-4 h-4 rounded-full" />
                   {m.name}
                 </button>
-              ))}
-            </div>
+              );
+              return (
+                <div className="flex flex-wrap gap-2">
+                  {teamMembers.length > 0 && (
+                    <>
+                      {teamMembers.map(renderChip)}
+                      {otherMembers.length > 0 && (
+                        <div style={{ width: '100%', borderTop: '1px solid #f0f0f0', margin: '2px 0' }} />
+                      )}
+                    </>
+                  )}
+                  {otherMembers.map(renderChip)}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

@@ -57,6 +57,28 @@ export async function getByCode(req: Request, res: Response) {
   }
 }
 
+export async function updateMemberRole(req: Request, res: Response) {
+  try {
+    const { role } = req.body;
+    if (!['admin', 'member'].includes(role)) {
+      return res.status(400).json({ error: 'role must be admin or member' });
+    }
+    const workspace = await ws.getWorkspaceById(String(req.params.id));
+    if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    if (workspace.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the workspace owner can change roles' });
+    }
+    const targetUserId = String(req.params.userId);
+    if (targetUserId === workspace.owner_id) {
+      return res.status(400).json({ error: 'Cannot change the role of the workspace owner' });
+    }
+    await ws.updateMemberRole(workspace.id, targetUserId, role);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 export async function joinByCode(req: Request, res: Response) {
   try {
     const workspace = await ws.getWorkspaceByInviteCode(String(req.params.code));

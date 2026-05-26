@@ -49,6 +49,18 @@ export async function create(req: Request, res: Response) {
 
     const task = await taskSvc.getEnrichedTask(id);
     if (io) io.to(`board:${board_id}`).emit('task_updated', { type: 'created', task });
+
+    // Notify team members of the new task
+    const teamMembers = await taskSvc.getBoardTeamMembers(board_id);
+    const actorNameForTeam = actorName;
+    for (const { user_id } of teamMembers) {
+      if (user_id === req.user.id) continue;
+      if (Array.isArray(assignee_ids) && assignee_ids.includes(user_id)) continue; // already notified as assignee
+      const msg = `${actorNameForTeam} created "${title}" on your team's board`;
+      const notifId = await taskSvc.createAssignmentNotification(user_id, 'task_assigned', id, msg, req.workspaceId!);
+      if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'task_assigned', message: msg, reference_id: id, reference_type: 'task', workspace_id: req.workspaceId });
+    }
+
     res.status(201).json(task);
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -170,9 +182,27 @@ export async function move(req: Request, res: Response) {
     const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    await taskSvc.moveTask(String(req.params.id), column_id ?? task.column_id, position ?? task.position);
+    const targetColumnId = column_id ?? task.column_id;
+    await taskSvc.moveTask(String(req.params.id), targetColumnId, position ?? task.position);
     const updated = await taskSvc.getEnrichedTask(String(req.params.id));
     if (io) io.to(`board:${updated!.board_id}`).emit('task_updated', { type: 'moved', task: updated });
+
+    // Notify team members when task is moved to the last (done) column
+    const lastColId = await taskSvc.getLastColumnId(updated!.board_id);
+    if (lastColId && targetColumnId === lastColId && task.column_id !== targetColumnId) {
+      const teamMembers = await taskSvc.getBoardTeamMembers(updated!.board_id);
+      if (teamMembers.length > 0) {
+        const actorName = await taskSvc.getUserName(req.user.id);
+        const boardName = await taskSvc.getBoardName(updated!.board_id);
+        const msg = `${task.task_key} was completed on ${boardName}`;
+        for (const { user_id } of teamMembers) {
+          if (user_id === req.user.id) continue;
+          const notifId = await taskSvc.createAssignmentNotification(user_id, 'task_assigned', String(req.params.id), msg, req.workspaceId!);
+          if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'task_assigned', message: msg, reference_id: String(req.params.id), reference_type: 'task', workspace_id: req.workspaceId });
+        }
+      }
+    }
+
     res.json(updated);
   } catch {
     res.status(500).json({ error: 'Server error' });

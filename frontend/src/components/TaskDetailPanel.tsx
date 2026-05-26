@@ -24,6 +24,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
   const members            = useWorkspaceStore(s => s.members);
+  const teams              = useWorkspaceStore(s => s.teams);
   const taskUpdateStatuses = useWorkspaceStore(s => s.taskUpdateStatuses);
   const boards             = useBoardStore(s => s.boards);
   const selectedTask       = useBoardStore(s => s.selectedTask);
@@ -491,25 +492,42 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
 
         <div>
           <label className="label flex items-center gap-1.5"><Users size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />Assignees</label>
-          <div className="flex flex-wrap gap-2">
-            {members.map(m => (
+          {(() => {
+            const boardTeam = teams.find(t => t.id === boards.find(b => b.id === form?.board_id)?.team_id);
+            const teamMemberIds = new Set(boardTeam?.members.map(m => m.id) ?? []);
+            const teamMembers  = members.filter(m => teamMemberIds.has(m.id));
+            const otherMembers = members.filter(m => !teamMemberIds.has(m.id));
+            const renderChip = (m: typeof members[0]) => (
               <button key={m.id} type="button"
                 onClick={() => toggleAssignee(m.id)}
                 style={{
-                  fontSize: 13, color: form.assignee_ids.includes(m.id) ? 'var(--ink)' : 'var(--muted)',
-                  fontWeight: form.assignee_ids.includes(m.id) ? 500 : 400,
-                  borderBottom: `1px solid ${form.assignee_ids.includes(m.id) ? 'var(--ink)' : 'transparent'}`,
+                  fontSize: 13, color: form!.assignee_ids.includes(m.id) ? 'var(--ink)' : 'var(--muted)',
+                  fontWeight: form!.assignee_ids.includes(m.id) ? 500 : 400,
+                  borderBottom: `1px solid ${form!.assignee_ids.includes(m.id) ? 'var(--ink)' : 'transparent'}`,
                   paddingBottom: 1,
                 }}
                 className="flex items-center gap-1.5"
                 onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
-                onMouseLeave={e => { if (!form.assignee_ids.includes(m.id)) e.currentTarget.style.color = 'var(--muted)'; }}
+                onMouseLeave={e => { if (!form!.assignee_ids.includes(m.id)) e.currentTarget.style.color = 'var(--muted)'; }}
               >
                 <img src={m.avatar_url} className="w-4 h-4 rounded-full" />
                 {m.name}
               </button>
-            ))}
-          </div>
+            );
+            return (
+              <div className="flex flex-wrap gap-2">
+                {teamMembers.length > 0 && (
+                  <>
+                    {teamMembers.map(renderChip)}
+                    {otherMembers.length > 0 && (
+                      <div style={{ width: '100%', borderTop: '1px solid var(--rule)', margin: '2px 0' }} />
+                    )}
+                  </>
+                )}
+                {otherMembers.map(renderChip)}
+              </div>
+            );
+          })()}
         </div>
 
         <div>

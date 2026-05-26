@@ -368,6 +368,7 @@ function MessageBubble({
 }: MessageBubbleProps) {
   const user             = useAuthStore(s => s.user);
   const threadUnread     = useUIStore(s => s.threadUnread);
+  const openSidebar      = useUIStore(s => s.openSidebar);
   const navigate         = useNavigate();
   const boards           = useBoardStore(s => s.boards);
   const columns          = useBoardStore(s => s.columns);
@@ -637,14 +638,18 @@ function MessageBubble({
         ) : (() => {
           const senderMember = members.find(m => m.id === msg.sender?.id);
           return (
-            <UserAvatar
-              src={msg.sender?.avatar_url}
-              name={msg.sender?.name}
-              size={22}
-              statusEmoji={senderMember?.status_emoji}
-              statusText={senderMember?.status_text}
-              style={{ marginTop: 3 }}
-            />
+            <button
+              onClick={() => msg.sender && openSidebar({ type: 'user-profile', userId: msg.sender.id })}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: msg.sender ? 'pointer' : 'default', marginTop: 3, flexShrink: 0 }}
+            >
+              <UserAvatar
+                src={msg.sender?.avatar_url}
+                name={msg.sender?.name}
+                size={22}
+                statusEmoji={senderMember?.status_emoji}
+                statusText={senderMember?.status_text}
+              />
+            </button>
           );
         })()}
 
@@ -652,7 +657,12 @@ function MessageBubble({
           {/* Header row — omitted for continuation messages */}
           {!isContinuation && (
             <div className="flex items-baseline gap-2.5 mb-1">
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+              <span
+                style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em', cursor: msg.sender ? 'pointer' : 'default' }}
+                onClick={() => msg.sender && openSidebar({ type: 'user-profile', userId: msg.sender.id })}
+                onMouseEnter={e => { if (msg.sender) e.currentTarget.style.textDecoration = 'underline'; }}
+                onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none'; }}
+              >
                 {msg.sender?.name || 'Former Member'}
               </span>
               <span style={{ fontSize: 11, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em' }}>

@@ -305,10 +305,12 @@ export default function BoardView() {
   const selectedTask      = useBoardStore(s => s.selectedTask);
   const setSelectedTask   = useBoardStore(s => s.setSelectedTask);
   const updateBoardName   = useBoardStore(s => s.updateBoardName);
+  const updateBoardTeam   = useBoardStore(s => s.updateBoardTeam);
   const socketRef = useContext(SocketContext);
   const user = useAuthStore(s => s.user);
   const role    = useWorkspaceStore(s => s.role);
   const members = useWorkspaceStore(s => s.members);
+  const teams   = useWorkspaceStore(s => s.teams);
   const activeSidebar = useUIStore(s => s.activeSidebar);
   const openSidebar   = useUIStore(s => s.openSidebar);
   const closeSidebar  = useUIStore(s => s.closeSidebar);
@@ -327,6 +329,7 @@ export default function BoardView() {
   const [newColName, setNewColName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
   const newColInputRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -592,9 +595,105 @@ export default function BoardView() {
               <Pencil size={14} style={{ color: 'var(--faint)', flexShrink: 0, marginBottom: 1 }} />
             </button>
           )}
-          <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-            {columns.reduce((acc, c) => acc + (c.tasks?.length ?? 0), 0)} tasks
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {columns.reduce((acc, c) => acc + (c.tasks?.length ?? 0), 0)} tasks
+            </p>
+            {/* Team assignment */}
+            {(() => {
+              const assignedTeam = teams.find(t => t.id === board?.team_id);
+              const canAssign = !!user && (role === 'admin' || board?.created_by === user.id);
+              if (!assignedTeam && !canAssign) return null;
+              return (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => canAssign && setShowTeamPicker(v => !v)}
+                    style={{
+                      fontSize: 11, fontWeight: 500, letterSpacing: '0.04em',
+                      color: assignedTeam ? 'var(--paper)' : 'var(--faint)',
+                      background: assignedTeam ? '#7C3AED' : 'transparent',
+                      border: assignedTeam ? 'none' : '1px dashed var(--rule)',
+                      padding: '2px 8px', cursor: canAssign ? 'pointer' : 'default',
+                      fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={e => { if (canAssign && !assignedTeam) e.currentTarget.style.borderColor = 'var(--ink)'; }}
+                    onMouseLeave={e => { if (!assignedTeam) e.currentTarget.style.borderColor = 'var(--rule)'; }}
+                  >
+                    {assignedTeam ? `👥 ${assignedTeam.name}` : '+ Assign team'}
+                  </button>
+                  {assignedTeam && assignedTeam.members.length > 0 && (
+                    <div className="flex items-center" style={{ marginLeft: 6 }}>
+                      {assignedTeam.members.slice(0, 5).map((m, i) => (
+                        m.avatar_url ? (
+                          <img key={m.id} src={m.avatar_url} title={m.name}
+                            className="w-5 h-5 rounded-full"
+                            style={{ marginLeft: i === 0 ? 0 : -6, border: '2px solid var(--surface)', flexShrink: 0 }} />
+                        ) : (
+                          <div key={m.id} title={m.name}
+                            className="w-5 h-5 rounded-full flex items-center justify-center"
+                            style={{ marginLeft: i === 0 ? 0 : -6, border: '2px solid var(--surface)', background: '#7C3AED', fontSize: 9, fontWeight: 600, color: '#fff', flexShrink: 0 }}>
+                            {m.name[0]}
+                          </div>
+                        )
+                      ))}
+                      {assignedTeam.members.length > 5 && (
+                        <span style={{ fontSize: 10, color: 'var(--faint)', marginLeft: 4 }}>
+                          +{assignedTeam.members.length - 5}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {showTeamPicker && canAssign && (
+                    <>
+                      <div className="fixed inset-0" style={{ zIndex: 49 }} onClick={() => setShowTeamPicker(false)} />
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50,
+                        background: 'var(--paper)', border: '1px solid var(--rule)',
+                        minWidth: 180, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                      }}>
+                        {board?.team_id && (
+                          <button
+                            onClick={async () => {
+                              await client.patch(`/api/boards/${boardId}`, { team_id: null });
+                              updateBoardTeam(boardId!, null);
+                              setShowTeamPicker(false);
+                            }}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--faint)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderBottom: '1px solid var(--rule)' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            Remove team
+                          </button>
+                        )}
+                        {teams.length === 0 && (
+                          <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--faint)' }}>No teams yet</div>
+                        )}
+                        {teams.map(t => (
+                          <button key={t.id}
+                            onClick={async () => {
+                              await client.patch(`/api/boards/${boardId}`, { team_id: t.id });
+                              updateBoardTeam(boardId!, t.id);
+                              setShowTeamPicker(false);
+                            }}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
+                              fontSize: 12, color: t.id === board?.team_id ? 'var(--ink)' : 'var(--ink-2)',
+                              fontWeight: t.id === board?.team_id ? 600 : 400,
+                              background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            {t.id === board?.team_id ? '✓ ' : ''}{t.name}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         </div>
         <div className="flex items-baseline gap-6">
           <div className="relative flex items-baseline">

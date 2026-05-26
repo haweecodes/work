@@ -6,6 +6,7 @@ import Mention from '@tiptap/extension-mention';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Italic, Link2, Smile } from 'lucide-react';
 import EmojiPicker from './EmojiPicker';
+import useWorkspaceStore from '../store/workspaceStore';
 import type { Member } from '../types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -51,6 +52,8 @@ function serializeNode(node: any): string {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type MentionItem = { id: string; name: string; avatar_url?: string | null; type: 'user' | 'team' };
+
 export interface MessageComposerHandle { focus: () => void; }
 
 type Variant = 'row' | 'inline';
@@ -92,15 +95,17 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
   ) {
     // ── Mention suggestion state ─────────────────────────────────────────────
     const [showMentionDropdown, setShowMentionDropdown] = useState(false);
-    const [mentionItems, setMentionItems] = useState<Member[]>([]);
+    const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
     const [mentionIndex, setMentionIndex] = useState(0);
     const mentionCommandRef = useRef<((item: { id: string; label: string }) => void) | null>(null);
     const mentionIndexRef   = useRef(0);
-    const mentionItemsRef   = useRef<Member[]>([]);
+    const mentionItemsRef   = useRef<MentionItem[]>([]);
+    const membersRef        = useRef<Member[]>(members);
 
     // Keep refs in sync
     useEffect(() => { mentionIndexRef.current = mentionIndex; }, [mentionIndex]);
     useEffect(() => { mentionItemsRef.current = mentionItems; }, [mentionItems]);
+    useEffect(() => { membersRef.current = members; }, [members]);
 
     // ── Toolbar state ────────────────────────────────────────────────────────
     const [showLinkInput, setShowLinkInput] = useState(false);
@@ -131,18 +136,26 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
             }, `@${node.attrs.label ?? ''}`];
           },
           suggestion: {
-            items: ({ query }) =>
-              members.filter(m => m.name.toLowerCase().startsWith(query.toLowerCase())).slice(0, 6),
+            items: ({ query }): MentionItem[] => {
+              const q = query.toLowerCase();
+              const memberItems: MentionItem[] = membersRef.current
+                .filter(m => m.name.toLowerCase().startsWith(q))
+                .map(m => ({ id: m.id, name: m.name, avatar_url: m.avatar_url, type: 'user' }));
+              const teamItems: MentionItem[] = useWorkspaceStore.getState().teams
+                .filter(t => t.name.toLowerCase().startsWith(q))
+                .map(t => ({ id: t.id, name: t.name, type: 'team' }));
+              return [...memberItems, ...teamItems].slice(0, 8);
+            },
             render: () => ({
               onStart(props) {
                 mentionCommandRef.current = props.command;
-                setMentionItems(props.items as Member[]);
+                setMentionItems(props.items as MentionItem[]);
                 setMentionIndex(0);
                 setShowMentionDropdown(true);
               },
               onUpdate(props) {
                 mentionCommandRef.current = props.command;
-                setMentionItems(props.items as Member[]);
+                setMentionItems(props.items as MentionItem[]);
                 setMentionIndex(0);
               },
               onExit() {
@@ -161,9 +174,9 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
                   return true;
                 }
                 if (event.key === 'Enter' || event.key === 'Tab') {
-                  const member = items[idx];
-                  if (member && mentionCommandRef.current) {
-                    mentionCommandRef.current({ id: member.id, label: member.name });
+                  const item = items[idx];
+                  if (item && mentionCommandRef.current) {
+                    mentionCommandRef.current({ id: item.id, label: item.name });
                   }
                   return true;
                 }
@@ -234,12 +247,12 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
     }, [value, editor]);
 
     // ── Mention selection ────────────────────────────────────────────────────
-    const selectMention = useCallback((member: Member, priority = 'normal') => {
+    const selectMention = useCallback((item: MentionItem, priority = 'normal') => {
       if (mentionCommandRef.current) {
-        mentionCommandRef.current({ id: member.id, label: member.name });
+        mentionCommandRef.current({ id: item.id, label: item.name });
       }
-      if (priority !== 'normal') {
-        onMentionPrioritySet?.(member.name, member.id, priority);
+      if (item.type === 'user' && priority !== 'normal') {
+        onMentionPrioritySet?.(item.name, item.id, priority);
       }
       setShowMentionDropdown(false);
       requestAnimationFrame(() => editor?.commands.focus());
@@ -295,32 +308,41 @@ const MessageComposer = forwardRef<MessageComposerHandle, MessageComposerProps>(
         className="absolute bottom-full left-0 mb-2 overflow-hidden z-20 animate-fade-in"
         style={{ background: 'var(--paper)', border: '1px solid var(--rule)', minWidth: 220 }}
       >
-        {mentionItems.map((m, i) => (
+        {mentionItems.map((item, i) => (
           <div
-            key={m.id}
+            key={item.id}
             className="flex items-center"
             style={{ background: i === mentionIndex ? 'var(--paper-2)' : 'transparent' }}
             onMouseEnter={() => setMentionIndex(i)}
           >
             <button
               type="button"
-              onMouseDown={e => { e.preventDefault(); selectMention(m); }}
+              onMouseDown={e => { e.preventDefault(); selectMention(item); }}
               className="flex items-center gap-2.5 px-3 py-2 flex-1 text-left"
               style={{ color: i === mentionIndex ? 'var(--ink)' : 'var(--ink-2)', background: 'transparent' }}
             >
-              {m.avatar_url
-                ? <img src={m.avatar_url} className="w-5 h-5 rounded-full flex-shrink-0" alt={m.name} />
-                : <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center"
-                    style={{ background: 'var(--rule-2)', fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>
-                    {m.name[0]}
-                  </div>
-              }
-              <span style={{ fontSize: 13, fontWeight: i === mentionIndex ? 500 : 400 }} className="truncate">{m.name}</span>
+              {item.type === 'team' ? (
+                <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center"
+                  style={{ background: 'var(--rule-2)', fontSize: 11 }}>
+                  👥
+                </div>
+              ) : item.avatar_url ? (
+                <img src={item.avatar_url} className="w-5 h-5 rounded-full flex-shrink-0" alt={item.name} />
+              ) : (
+                <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center"
+                  style={{ background: 'var(--rule-2)', fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>
+                  {item.name[0]}
+                </div>
+              )}
+              <span style={{ fontSize: 13, fontWeight: i === mentionIndex ? 500 : 400 }} className="truncate">{item.name}</span>
+              {item.type === 'team' && (
+                <span style={{ fontSize: 10, color: 'var(--faint)', marginLeft: 4, flexShrink: 0 }}>team</span>
+              )}
             </button>
-            {onPriorityAlertMentionAdd && (
+            {item.type === 'user' && onPriorityAlertMentionAdd && (
               <button
                 type="button"
-                onMouseDown={e => { e.preventDefault(); selectMention(m); onPriorityAlertMentionAdd(m.id, m.name); }}
+                onMouseDown={e => { e.preventDefault(); selectMention(item); onPriorityAlertMentionAdd(item.id, item.name); }}
                 title="Send as priority alert"
                 style={{ fontSize: 10, fontWeight: 600, color: 'var(--danger)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 10px', flexShrink: 0, fontFamily: 'inherit', letterSpacing: '0.06em' }}
               >Alert</button>

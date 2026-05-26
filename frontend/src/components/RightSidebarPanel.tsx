@@ -8,6 +8,7 @@ import BoardUpdatesPanel from './BoardUpdatesPanel';
 import TaskUpdatePanel from './TaskUpdatePanel';
 import TaskTray from './TaskTray';
 import ChannelInfoPanel from './ChannelInfoPanel';
+import UserProfilePanel from './UserProfilePanel';
 
 const TaskDetailPanel = lazy(() => import('./TaskDetailPanel'));
 const ThreadPanel     = lazy(() => import('./ThreadPanel'));
@@ -59,10 +60,11 @@ export default function RightSidebarPanel() {
   const showTasks         = activeSidebar?.type === 'tasks';
   const showTaskUpdates   = activeSidebar?.type === 'task-updates';
   const showChannelInfo   = activeSidebar?.type === 'channel-info';
+  const showUserProfile   = activeSidebar?.type === 'user-profile';
   // Task detail shows only when no other panel has been explicitly opened.
-  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates && !showChannelInfo;
+  const showTask = !!selectedTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates && !showChannelInfo && !showUserProfile;
 
-  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates && !showChannelInfo) return null;
+  if (!showTask && !showNotifications && !showUpdates && !showThread && !showTasks && !showTaskUpdates && !showChannelInfo && !showUserProfile) return null;
 
   return (
     <>
@@ -117,6 +119,9 @@ export default function RightSidebarPanel() {
         )}
         {showChannelInfo && activeSidebar?.type === 'channel-info' && (
           <ChannelInfoPanel channelId={activeSidebar.channelId} onClose={closeSidebar} />
+        )}
+        {showUserProfile && activeSidebar?.type === 'user-profile' && (
+          <UserProfilePanel userId={activeSidebar.userId} onClose={closeSidebar} />
         )}
       </div>
 

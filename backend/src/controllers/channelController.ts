@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Server } from 'socket.io';
 import * as channelSvc from '../services/channelService';
 import * as notifService from '../services/notificationService';
+import { all } from '../db';
 
 let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
@@ -110,6 +111,7 @@ export async function sendMessage(req: Request, res: Response) {
     if (content.includes('@')) {
       const workspaceId = await channelSvc.getWorkspaceForChannel(channel_id);
       if (workspaceId) {
+        // User mentions
         const memberIds = await channelSvc.getWorkspaceMemberIds(workspaceId);
         for (const memberId of memberIds) {
           if (memberId === req.user.id) continue;
@@ -121,6 +123,23 @@ export async function sendMessage(req: Request, res: Response) {
           const notifMsg = `${sender?.name ?? 'A user'} mentioned you: "${content.slice(0, 80)}"`;
           const notifId = await channelSvc.createMentionNotification(memberId, channel_id, notifMsg, priority, workspaceId);
           if (io) io.to(`user:${memberId}`).emit('notification', { id: notifId, type: 'mention', message: notifMsg, reference_id: channel_id, reference_type: 'channel', priority });
+        }
+
+        // Team mentions — @TeamName fans out to all team members
+        const teams = await all<{ id: string; name: string }>(
+          'SELECT id, name FROM teams WHERE workspace_id = ?', [workspaceId]
+        );
+        for (const team of teams) {
+          if (!content.includes(`@${team.name}`)) continue;
+          const teamMemberIds = await all<{ user_id: string }>(
+            'SELECT user_id FROM team_members WHERE team_id = ?', [team.id]
+          );
+          const notifMsg = `${sender?.name ?? 'A user'} mentioned @${team.name}: "${content.slice(0, 80)}"`;
+          for (const { user_id } of teamMemberIds) {
+            if (user_id === req.user.id) continue;
+            const notifId = await channelSvc.createMentionNotification(user_id, channel_id, notifMsg, 'normal', workspaceId);
+            if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'mention', message: notifMsg, reference_id: channel_id, reference_type: 'channel', priority: 'normal' });
+          }
         }
       }
     }

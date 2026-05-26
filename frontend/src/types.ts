@@ -45,6 +45,14 @@ export interface Member extends User {
   role?: 'admin' | 'member';
 }
 
+export interface Team {
+  id: string;
+  workspace_id: string;
+  name: string;
+  created_by: string;
+  members: Pick<Member, 'id' | 'name' | 'avatar_url'>[];
+}
+
 
 export interface Board {
   id: string;
@@ -53,6 +61,7 @@ export interface Board {
   project_key?: string;
   task_sequence?: number;
   created_by?: string;
+  team_id?: string | null;
 }
 
 export interface TaskUpdateResponse {

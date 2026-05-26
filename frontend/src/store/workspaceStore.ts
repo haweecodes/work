@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import client from '../api/client';
-import type { Workspace, Channel, DmThread, Member, StatusConfig } from '../types';
+import type { Workspace, Channel, DmThread, Member, StatusConfig, Team } from '../types';
 
 const DEFAULT_STATUSES: StatusConfig[] = [
   { value: 'on_track',  label: 'On Track',   color: 'var(--ink)',    requiresReason: false },
@@ -15,6 +15,7 @@ interface WorkspaceState {
   channels: Channel[];
   dmThreads: DmThread[];
   members: Member[];
+  teams: Team[];
   taskUpdateStatuses: StatusConfig[];
   /** The current user's role in the active workspace ('admin' | 'member' | null) */
   role: 'admin' | 'member' | null;
@@ -27,6 +28,8 @@ interface WorkspaceState {
   fetchMembers: (workspaceId: string) => Promise<void>;
   fetchDmThreads: (workspaceId: string) => Promise<void>;
   fetchSettings: (workspaceId: string) => Promise<void>;
+  fetchTeams: (workspaceId: string) => Promise<void>;
+  setTeams: (teams: Team[]) => void;
   setTaskUpdateStatuses: (statuses: StatusConfig[]) => void;
   addChannel: (channel: Channel) => void;
   updateChannel: (channel: Partial<Channel> & { id: string }) => void;
@@ -42,6 +45,7 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   channels: [],
   dmThreads: [],
   members: [],
+  teams: [],
   taskUpdateStatuses: DEFAULT_STATUSES,
   role: null,
   isAdmin: (userId: string) => {
@@ -66,7 +70,7 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       showInvite: false,
     });
     useNotifStore.setState({ notifications: [] });
-    set({ role: null, taskUpdateStatuses: DEFAULT_STATUSES });
+    set({ role: null, taskUpdateStatuses: DEFAULT_STATUSES, teams: [] });
 
     localStorage.setItem('fw_workspace', JSON.stringify(workspace));
     set({ currentWorkspace: workspace, channels: [], dmThreads: [], members: [] });
@@ -74,6 +78,7 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     await get().fetchMembers(workspace.id);
     await get().fetchDmThreads(workspace.id);
     await get().fetchSettings(workspace.id);
+    await get().fetchTeams(workspace.id);
   },
 
   fetchWorkspaces: async () => {
@@ -113,6 +118,14 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
     } catch { /* keep defaults on error */ }
   },
+
+  fetchTeams: async (_workspaceId: string) => {
+    try {
+      const { data } = await client.get<Team[]>('/api/teams');
+      set({ teams: data });
+    } catch { /* keep empty on error */ }
+  },
+  setTeams: (teams) => set({ teams }),
 
   setTaskUpdateStatuses: (statuses) => set({ taskUpdateStatuses: statuses }),
 

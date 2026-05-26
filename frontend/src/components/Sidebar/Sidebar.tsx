@@ -97,6 +97,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const channels            = useWorkspaceStore(s => s.channels);
   const dmThreads           = useWorkspaceStore(s => s.dmThreads);
   const members             = useWorkspaceStore(s => s.members);
+  const teams               = useWorkspaceStore(s => s.teams);
   const setCurrentWorkspace = useWorkspaceStore(s => s.setCurrentWorkspace);
   const addChannel          = useWorkspaceStore(s => s.addChannel);
   const fetchDmThreads      = useWorkspaceStore(s => s.fetchDmThreads);
@@ -347,9 +348,30 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         <section>
           <SectionLabel icon={Kanban} onAdd={() => openCreateBoard()}>Boards</SectionLabel>
           <div className="space-y-0">
-            {boards.map(b => (
-              <NavItem key={b.id} to={`/board/${b.id}`} label={b.name} />
-            ))}
+            {(() => {
+              const myTeamBoardIds = new Set(
+                teams
+                  .filter(t => t.members.some(m => m.id === user?.id))
+                  .map(t => boards.filter(b => b.team_id === t.id).map(b => b.id))
+                  .flat()
+              );
+              const myBoards    = boards.filter(b => myTeamBoardIds.has(b.id));
+              const otherBoards = boards.filter(b => !myTeamBoardIds.has(b.id));
+              return (
+                <>
+                  {myBoards.map(b => (
+                    <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
+                      title={teams.find(t => t.id === b.team_id)?.name} />
+                  ))}
+                  {myBoards.length > 0 && otherBoards.length > 0 && (
+                    <div style={{ borderTop: '1px solid var(--rule)', margin: '4px 0' }} />
+                  )}
+                  {otherBoards.map(b => (
+                    <NavItem key={b.id} to={`/board/${b.id}`} label={b.name} />
+                  ))}
+                </>
+              );
+            })()}
           </div>
         </section>
       </div>

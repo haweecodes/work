@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
+import useWorkspaceStore from '../store/workspaceStore';
 import SocketContext from '../context/SocketContext';
 import MessageBubble from './MessageBubble';
 import MessageComposer, { type MessageComposerHandle } from './MessageComposer';
@@ -37,6 +38,7 @@ export default function ThreadPanel({
   /** The specific thread message being replied to (for nested replies) */
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const { user } = useAuthStore();
+  const members = useWorkspaceStore(s => s.members);
   const socketRef = useContext(SocketContext);
   const endRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<MessageComposerHandle>(null);
@@ -321,6 +323,7 @@ export default function ThreadPanel({
           onSubmit={handleSend}
           placeholder={replyingTo ? `Reply to ${replyingTo.sender?.name}…` : 'Reply in thread…'}
           onKeyDown={e => { if (e.key === 'Escape' && replyingTo) setReplyingTo(null); }}
+          members={members}
         />
       </div>
     </div>

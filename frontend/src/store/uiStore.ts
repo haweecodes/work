@@ -8,6 +8,7 @@ export type SidebarView =
   | { type: 'tasks' }
   | { type: 'task-updates' }
   | { type: 'channel-info'; channelId: string }
+  | { type: 'user-profile'; userId: string }
   | null;
 
 interface UIState {

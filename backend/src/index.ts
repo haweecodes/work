@@ -20,6 +20,7 @@ import dmRoutes, { setIo as setDmIo } from './routes/dms';
 import notificationRoutes, { setIo as setNotifIo } from './routes/notifications';
 import searchRoutes from './routes/search';
 import taskUpdateRoutes, { setIo as setTaskUpdateIo } from './routes/taskUpdates';
+import teamRoutes from './routes/teams';
 import { authMiddleware } from './middleware/auth';
 import { requireWorkspace } from './middleware/workspace';
 
@@ -70,6 +71,7 @@ app.use('/api/dms',           ...protect, dmRoutes);
 app.use('/api/notifications', ...protect, notificationRoutes);
 app.use('/api/search',        ...protect, searchRoutes);
 app.use('/api/task-updates',  ...protect, taskUpdateRoutes);
+app.use('/api/teams',         ...protect, teamRoutes);
 
 const PORT = process.env.PORT || 3001;
 

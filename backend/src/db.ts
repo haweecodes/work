@@ -73,6 +73,22 @@ export async function initDb(): Promise<void> {
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_hours TEXT`;
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_emoji TEXT`;
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_text TEXT`;
+    await sql`CREATE TABLE IF NOT EXISTS teams (
+      id           TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      name         TEXT NOT NULL,
+      created_by   TEXT NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )`;
+    await sql`CREATE TABLE IF NOT EXISTS team_members (
+      team_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (team_id, user_id)
+    )`;
+    await sql`ALTER TABLE boards ADD COLUMN IF NOT EXISTS team_id TEXT`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_teams_workspace    ON teams(workspace_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_team_members_team  ON team_members(team_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_team_members_user  ON team_members(user_id)`;
 
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {

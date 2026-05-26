@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { eq, and, asc, sql, inArray } from 'drizzle-orm';
-import { db, tasks, task_assignees, boards, columns, messages, users, notifications, type NewTask } from '../db';
+import { db, tasks, task_assignees, boards, columns, messages, users, notifications, teams, team_members, type NewTask } from '../db';
 
 export async function getTaskById(id: string, workspaceId: string) {
   const rows = await db.execute(sql`
@@ -192,4 +192,27 @@ export async function boardBelongsToWorkspace(boardId: string, workspaceId: stri
     where: and(eq(boards.id, boardId), eq(boards.workspace_id, workspaceId)),
   });
   return !!row;
+}
+
+export async function getBoardTeamMembers(boardId: string): Promise<Array<{ user_id: string }>> {
+  const rows = await db.execute(sql`
+    SELECT tm.user_id
+    FROM boards b
+    JOIN team_members tm ON tm.team_id = b.team_id
+    WHERE b.id = ${boardId} AND b.team_id IS NOT NULL
+  `);
+  return (rows.rows ?? rows) as Array<{ user_id: string }>;
+}
+
+export async function getLastColumnId(boardId: string): Promise<string | null> {
+  const rows = await db.execute(sql`
+    SELECT id FROM columns WHERE board_id = ${boardId} ORDER BY position DESC LIMIT 1
+  `);
+  const row = ((rows.rows ?? rows) as any[])[0];
+  return row?.id ?? null;
+}
+
+export async function getBoardName(boardId: string): Promise<string> {
+  const row = await db.query.boards.findFirst({ where: eq(boards.id, boardId), columns: { name: true } });
+  return row?.name ?? 'a board';
 }

@@ -65,6 +65,16 @@ export async function getWorkspaceByInviteCode(code: string) {
   return db.query.workspaces.findFirst({ where: eq(workspaces.invite_code, code) });
 }
 
+export async function getWorkspaceById(workspaceId: string) {
+  return db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+}
+
+export async function updateMemberRole(workspaceId: string, userId: string, role: string) {
+  await db.update(workspace_members)
+    .set({ role })
+    .where(and(eq(workspace_members.workspace_id, workspaceId), eq(workspace_members.user_id, userId)));
+}
+
 export async function getMemberPublicData(userId: string) {
   return db.query.users.findFirst({
     where: eq(users.id, userId),

@@ -38,6 +38,11 @@ export async function updateBoardName(boardId: string, name: string) {
   return board;
 }
 
+export async function updateBoardTeam(boardId: string, teamId: string | null) {
+  const [board] = await db.update(boards).set({ team_id: teamId }).where(eq(boards.id, boardId)).returning();
+  return board;
+}
+
 export async function getColumnsWithTasks(boardId: string) {
   const cols = await db.select().from(columns)
     .where(eq(columns.board_id, boardId))
