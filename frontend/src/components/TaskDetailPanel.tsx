@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Flag, Layers, Calendar, Users, AlignLeft, ListTree, GitBranch, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Flag, Layers, Calendar, Users, AlignLeft, ListTree, GitBranch, MessageSquare, History } from 'lucide-react';
 import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 import useBoardStore from '../store/boardStore';
-import type { Column, TaskAssignee } from '../types';
+import type { Column, TaskAssignee, TaskHistoryEntry } from '../types';
 
 interface PriorityStyle {
   badge: string;
@@ -58,9 +58,15 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   const titleRef = useRef<HTMLInputElement>(null);
   const formInitialized = useRef(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const originalForm = useRef<NonNullable<typeof form> | null>(null);
 
   // Column matching state when moving to a different board
   const [columnMatchState, setColumnMatchState] = useState<'matched' | 'unmatched' | null>(null);
+
+  // Task history
+  const [history, setHistory] = useState<TaskHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Pending update request for this task
   const [pendingRequest, setPendingRequest] = useState<{ request_id: string; requester_name: string } | null>(null);
@@ -75,6 +81,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   useEffect(() => {
     if (!selectedTask) return;
     formInitialized.current = false;
+    originalForm.current = null;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
     setLoading(true);
     setForm(null);
@@ -82,7 +89,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
     setColumnMatchState(null);
     client.get(`/api/tasks/task/${selectedTask.id}`)
       .then(({ data }) => {
-        setForm({
+        const loaded = {
           title: data.title,
           description: data.description || '',
           priority: data.priority || 'medium',
@@ -91,11 +98,13 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
           board_id: data.board_id || selectedTask.board_id || '',
           assignee_ids: data.assignees?.map((a: any) => a.id) || [],
           parent_task_id: data.parent_task_id || '',
-        });
+        };
+        setForm(loaded);
+        originalForm.current = loaded;
         setBoardColumns(columns);
       })
       .catch(() => {
-        setForm({
+        const fallback = {
           title: selectedTask.title,
           description: selectedTask.description || '',
           priority: selectedTask.priority || 'medium',
@@ -104,10 +113,31 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
           board_id: selectedTask.board_id || '',
           assignee_ids: selectedTask.assignees?.map(a => a.id) || [],
           parent_task_id: selectedTask.parent_task_id || '',
-        });
+        };
+        setForm(fallback);
+        originalForm.current = fallback;
         setBoardColumns(columns);
       })
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTask?.id]);
+
+  // Fetch task history only when the section is expanded
+  useEffect(() => {
+    if (!showHistory || !selectedTask) return;
+    setHistory([]);
+    setHistoryLoading(true);
+    client.get<TaskHistoryEntry[]>(`/api/tasks/${selectedTask.id}/history`)
+      .then(({ data }) => setHistory(data))
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHistory, selectedTask?.id]);
+
+  // Reset history panel when task changes
+  useEffect(() => {
+    setShowHistory(false);
+    setHistory([]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id]);
 
@@ -154,9 +184,20 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form?.board_id]);
 
+  const formChanged = (a: NonNullable<typeof form>, b: NonNullable<typeof form>) =>
+    a.title !== b.title ||
+    a.description !== b.description ||
+    a.priority !== b.priority ||
+    a.due_date !== b.due_date ||
+    a.column_id !== b.column_id ||
+    a.board_id !== b.board_id ||
+    a.parent_task_id !== b.parent_task_id ||
+    JSON.stringify([...a.assignee_ids].sort()) !== JSON.stringify([...b.assignee_ids].sort());
+
   const handleSave = async () => {
     if (!form || !selectedTask) return;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+    if (originalForm.current && !formChanged(form, originalForm.current)) return;
     setSaving(true);
     setSaveStatus('idle');
     const boardChanged = form.board_id && form.board_id !== selectedTask.board_id;
@@ -166,6 +207,7 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
         .filter(m => form.assignee_ids.includes(m.id))
         .map(m => ({ id: m.id, name: m.name, avatar_url: m.avatar_url }));
       const updatedTask = { ...data, assignees };
+      originalForm.current = { ...form };
       if (boardChanged) {
         // Task is no longer on the current board's view — remove it
         removeTask(selectedTask.id);
@@ -266,6 +308,37 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
       setTimeout(() => setCopiedKey(false), 2000);
     }
   };
+
+  function formatHistoryEntry(e: TaskHistoryEntry): string {
+    switch (e.action) {
+      case 'created': return 'created this task';
+      case 'moved':   return `moved to ${e.new_value ?? ''}`;
+      case 'assignee_added':   return `assigned ${e.new_value ?? ''}`;
+      case 'assignee_removed': return `removed ${e.old_value ?? ''}`;
+      case 'updated':
+        switch (e.field) {
+          case 'title':       return `renamed to "${e.new_value}"`;
+          case 'priority':    return `changed priority to ${e.new_value}`;
+          case 'due_date':    return e.new_value ? `set due date to ${e.new_value}` : 'removed due date';
+          case 'description': return 'updated description';
+          case 'column':      return `moved to ${e.new_value}`;
+          case 'board':       return `moved to board ${e.new_value}`;
+          default:            return 'made a change';
+        }
+      default: return 'made a change';
+    }
+  }
+
+  function timeAgo(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  }
 
   if (!selectedTask) return null;
   if (loading || !form) return (
@@ -614,8 +687,57 @@ export default function TaskDetailPanel({ onBack }: { onBack?: () => void } = {}
           </div>
         )}
 
-        <div className="pt-2 border-t border-gray-100">
-          <p className="text-xs text-gray-400">
+        {/* Activity / History */}
+        <div className="pt-2" style={{ borderTop: '1px solid var(--rule)' }}>
+          <button
+            type="button"
+            onClick={() => setShowHistory(v => !v)}
+            className="flex items-center gap-1.5 w-full"
+            style={{ marginBottom: showHistory ? 12 : 0 }}
+          >
+            <History size={13} style={{ color: 'var(--faint)', flexShrink: 0 }} />
+            <span className="label" style={{ marginBottom: 0 }}>Activity</span>
+            <svg
+              style={{ marginLeft: 'auto', color: 'var(--faint)', transition: 'transform 150ms', transform: showHistory ? 'rotate(180deg)' : 'rotate(0deg)' }}
+              width={12} height={12} viewBox="0 0 12 12" fill="none"
+            >
+              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          {showHistory && (
+            <>
+              {historyLoading ? (
+                <div className="space-y-2">
+                  {[1,2,3].map(i => <div key={i} className="h-3 bg-gray-100 rounded animate-pulse" style={{ width: `${60 + i * 10}%` }} />)}
+                </div>
+              ) : history.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--faint)' }}>No activity yet</p>
+              ) : (
+                <div className="space-y-0">
+                  {history.map(e => (
+                    <div key={e.id} className="flex items-start gap-2 py-2" style={{ borderBottom: '1px solid var(--rule-2)' }}>
+                      {e.actor_avatar
+                        ? <img src={e.actor_avatar} className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5" />
+                        : <div className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5 flex items-center justify-center text-white" style={{ fontSize: 9, background: '#6366f1' }}>
+                            {e.actor_name.charAt(0).toUpperCase()}
+                          </div>
+                      }
+                      <div className="flex-1 min-w-0">
+                        <span style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>{e.actor_name}</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}> {formatHistoryEntry(e)}</span>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0, marginTop: 1 }} title={format(new Date(e.created_at), 'MMM d, yyyy HH:mm')}>
+                        {timeAgo(e.created_at)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          <p style={{ fontSize: 11, color: 'var(--faint)', marginTop: 8 }}>
             Created {selectedTask.created_at ? format(new Date(selectedTask.created_at), 'MMM d, yyyy') : ''}
           </p>
         </div>

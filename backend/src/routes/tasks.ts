@@ -10,6 +10,7 @@ router.post('/',                 task.create);
 router.patch('/:id',             task.update);
 router.patch('/:id/move',        task.move);
 router.delete('/:id',            task.deleteTask);
+router.get('/:id/history',       task.getHistory);
 router.get('/:boardId',          task.listByBoard);
 export default router;
 export { setIo } from '../controllers/taskController';

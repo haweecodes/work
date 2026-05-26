@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { eq, and, sql, inArray } from 'drizzle-orm';
-import { db, channels, channel_members, messages, message_reactions, users, workspace_members, notifications, tasks } from '../db';
+import { db, channels, channel_members, messages, message_reactions, users, workspace_members, notifications, tasks, task_assignees, team_members } from '../db';
 import { enrichMessages } from '../lib/messageEnrich';
 
 export async function getChannelsByWorkspace(workspaceId: string, userId: string) {
@@ -241,4 +241,85 @@ export async function getUserById(userId: string) {
     where: eq(users.id, userId),
     columns: { id: true, name: true, avatar_url: true },
   });
+}
+
+export async function addChannelMemberSafe(channelId: string, userId: string) {
+  await db.insert(channel_members).values({ channel_id: channelId, user_id: userId }).onConflictDoNothing();
+}
+
+export async function getTaskAssigneesForBoard(boardId: string) {
+  const rows = await db
+    .selectDistinct({ user_id: task_assignees.user_id })
+    .from(task_assignees)
+    .innerJoin(tasks, eq(task_assignees.task_id, tasks.id))
+    .where(eq(tasks.board_id, boardId));
+  return rows.map(r => r.user_id);
+}
+
+export async function createBoardChannel(
+  workspaceId: string,
+  boardId: string,
+  name: string,
+  isPrivate: boolean,
+  createdBy: string,
+  teamId?: string | null,
+) {
+  const id = uuidv4();
+  const channelName = name.toLowerCase().replace(/\s+/g, '-');
+
+  await db.insert(channels).values({
+    id,
+    workspace_id: workspaceId,
+    name: channelName,
+    is_private: isPrivate ? 1 : 0,
+    created_by: createdBy,
+    board_id: boardId,
+  });
+
+  if (isPrivate) {
+    await db.insert(channel_members).values({ channel_id: id, user_id: createdBy }).onConflictDoNothing();
+    if (teamId) {
+      const teamRows = await db
+        .select({ user_id: team_members.user_id })
+        .from(team_members)
+        .where(eq(team_members.team_id, teamId));
+      if (teamRows.length > 0) {
+        await db.insert(channel_members)
+          .values(teamRows.map(r => ({ channel_id: id, user_id: r.user_id })))
+          .onConflictDoNothing();
+      }
+    }
+  } else {
+    const members = await db
+      .select({ user_id: workspace_members.user_id })
+      .from(workspace_members)
+      .where(eq(workspace_members.workspace_id, workspaceId));
+    if (members.length > 0) {
+      await db.insert(channel_members)
+        .values(members.map(m => ({ channel_id: id, user_id: m.user_id })))
+        .onConflictDoNothing();
+    }
+  }
+
+  return db.query.channels.findFirst({ where: eq(channels.id, id) });
+}
+
+export async function removeChannelMember(channelId: string, userId: string) {
+  await db.delete(channel_members).where(
+    and(eq(channel_members.channel_id, channelId), eq(channel_members.user_id, userId))
+  );
+}
+
+export async function createSystemMessage(channelId: string, senderId: string, content: string) {
+  const id = uuidv4();
+  const now = new Date();
+  await db.insert(messages).values({
+    id,
+    channel_id: channelId,
+    sender_id: senderId,
+    content,
+    is_system: 1,
+    importance: 'normal',
+  });
+  return { id, channel_id: channelId, sender_id: senderId, content, created_at: now.toISOString(), is_system: 1 };
 }

@@ -37,6 +37,7 @@ export const channels = pgTable('channels', {
   is_private:   integer('is_private').default(0),
   is_archived:  integer('is_archived').default(0),
   created_by:   text('created_by').references(() => users.id),
+  board_id:     text('board_id'),
   created_at:   timestamp('created_at').defaultNow(),
 });
 
@@ -78,6 +79,7 @@ export const boards = pgTable('boards', {
   task_sequence: integer('task_sequence').default(0),
   created_by:    text('created_by').references(() => users.id),
   team_id:       text('team_id').references(() => teams.id),
+  channel_id:    text('channel_id'),
   created_at:    timestamp('created_at').defaultNow(),
 });
 
@@ -178,6 +180,19 @@ export const task_update_responses = pgTable('task_update_responses', {
   created_at: timestamp('created_at').defaultNow(),
 });
 
+export const task_history = pgTable('task_history', {
+  id:           text('id').primaryKey(),
+  task_id:      text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  actor_id:     text('actor_id').notNull().references(() => users.id),
+  actor_name:   text('actor_name').notNull(),
+  actor_avatar: text('actor_avatar'),
+  action:       text('action').notNull(),
+  field:        text('field'),
+  old_value:    text('old_value'),
+  new_value:    text('new_value'),
+  created_at:   timestamp('created_at').defaultNow(),
+});
+
 // ── Inferred types (source of truth for the entire backend) ───────────────────
 export type Team           = typeof teams.$inferSelect;
 export type NewTeam        = typeof teams.$inferInsert;
@@ -205,3 +220,5 @@ export type NewTaskUpdateRequest = typeof task_update_requests.$inferInsert;
 export type TaskUpdateResponse = typeof task_update_responses.$inferSelect;
 export type NewTaskUpdateResponse = typeof task_update_responses.$inferInsert;
 export type WorkspaceSettings    = typeof workspace_settings.$inferSelect;
+export type TaskHistory          = typeof task_history.$inferSelect;
+export type NewTaskHistory       = typeof task_history.$inferInsert;

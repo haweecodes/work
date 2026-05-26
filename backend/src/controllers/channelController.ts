@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { Server } from 'socket.io';
 import * as channelSvc from '../services/channelService';
 import * as notifService from '../services/notificationService';
-import { all } from '../db';
+import { all, get } from '../db';
 
 let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
@@ -233,6 +233,69 @@ export async function toggleReaction(req: Request, res: Response) {
     if (io && roomId) io.to(roomId).emit('reaction_updated', { message_id: String(req.params.messageId), reactions });
 
     res.json(reactions);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function addMember(req: Request, res: Response) {
+  try {
+    const channelId = String(req.params.channelId);
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id required' });
+
+    const channel = await channelSvc.getChannelById(channelId, req.workspaceId!);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    if (!channel.is_private) return res.status(400).json({ error: 'Members can only be added manually to private channels' });
+
+    // Verify target user is a workspace member
+    const isWorkspaceMember = await channelSvc.getWorkspaceMemberIds(req.workspaceId!);
+    if (!isWorkspaceMember.includes(String(user_id))) {
+      return res.status(400).json({ error: 'User is not a member of this workspace' });
+    }
+
+    await channelSvc.addChannelMemberSafe(channelId, String(user_id));
+
+    // Notify the added user so their sidebar updates
+    if (io) io.to(`user:${user_id}`).emit('channel_created', channel);
+
+    const addedUser = await channelSvc.getUserById(String(user_id));
+    const sysMsg = await channelSvc.createSystemMessage(channelId, req.user.id, `${addedUser?.name ?? 'A user'} joined the channel`);
+    if (io && sysMsg) io.to(`channel:${channelId}`).emit('new_message', sysMsg);
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function removeMember(req: Request, res: Response) {
+  try {
+    const channelId = String(req.params.channelId);
+    const targetUserId = String(req.params.userId);
+
+    const channel = await channelSvc.getChannelById(channelId, req.workspaceId!);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    if (!channel.is_private) return res.status(400).json({ error: 'Cannot manually remove members from a public channel' });
+
+    // Only admins or the channel creator can remove others; anyone can remove themselves
+    const isSelf = targetUserId === req.user.id;
+    const isCreator = channel.created_by === req.user.id;
+    const requesterRow = await get<{ role: string }>(
+      'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
+      [req.workspaceId, req.user.id]
+    );
+    const isAdmin = requesterRow?.role === 'admin';
+
+    const canRemove = isSelf || isCreator || isAdmin;
+    if (!canRemove) return res.status(403).json({ error: 'Not allowed' });
+
+    await channelSvc.removeChannelMember(channelId, targetUserId);
+
+    // Notify the removed user to update their sidebar
+    if (io) io.to(`user:${targetUserId}`).emit('channel_archived', { channelId });
+
+    res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

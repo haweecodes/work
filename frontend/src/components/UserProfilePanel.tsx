@@ -10,12 +10,14 @@ interface Props {
 
 export default function UserProfilePanel({ userId, onClose }: Props) {
   const members          = useWorkspaceStore(s => s.members);
+  const teams            = useWorkspaceStore(s => s.teams);
   const currentWorkspace = useWorkspaceStore(s => s.currentWorkspace);
   const currentUser      = useAuthStore(s => s.user);
 
-  const member = members.find(m => m.id === userId);
-  const isOwner = currentWorkspace?.owner_id === userId;
-  const isSelf  = currentUser?.id === userId;
+  const member     = members.find(m => m.id === userId);
+  const userTeams  = teams.filter(t => t.members.some(m => m.id === userId));
+  const isOwner    = currentWorkspace?.owner_id === userId;
+  const isSelf     = currentUser?.id === userId;
 
   const roleLabel = isOwner ? 'Owner' : (member?.role === 'admin' ? 'Admin' : 'Member');
   const roleBg    = isOwner ? '#7C3AED' : (member?.role === 'admin' ? '#6366f1' : undefined);
@@ -146,6 +148,43 @@ export default function UserProfilePanel({ userId, onClose }: Props) {
             value={roleLabel}
           />
         </div>
+
+        {/* Teams */}
+        {userTeams.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase',
+              color: 'var(--faint)', marginBottom: 8,
+            }}>
+              Teams
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {userTeams.map(t => (
+                <div key={t.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '7px 10px',
+                }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface, #F9F9F8)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{
+                    fontSize: 11, lineHeight: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 20, height: 20, flexShrink: 0,
+                    background: '#7C3AED', color: '#fff', fontWeight: 700,
+                    borderRadius: 3,
+                  }}>
+                    {t.name[0].toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>{t.name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--faint)', marginLeft: 'auto' }}>
+                    {t.members.length} {t.members.length === 1 ? 'member' : 'members'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

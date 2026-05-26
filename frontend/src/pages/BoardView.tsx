@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useContext, lazy, Suspense, useMemo, useCallback, memo } from 'react';
-import { Search, RefreshCw, Plus, Pencil } from 'lucide-react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Search, RefreshCw, Plus, Pencil, Hash } from 'lucide-react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
 import useUIStore from '../store/uiStore';
@@ -304,8 +304,12 @@ export default function BoardView() {
   const addColumn         = useBoardStore(s => s.addColumn);
   const selectedTask      = useBoardStore(s => s.selectedTask);
   const setSelectedTask   = useBoardStore(s => s.setSelectedTask);
-  const updateBoardName   = useBoardStore(s => s.updateBoardName);
-  const updateBoardTeam   = useBoardStore(s => s.updateBoardTeam);
+  const updateBoardName    = useBoardStore(s => s.updateBoardName);
+  const updateBoardTeam    = useBoardStore(s => s.updateBoardTeam);
+  const updateBoardChannel = useBoardStore(s => s.updateBoardChannel);
+  const addChannel         = useWorkspaceStore(s => s.addChannel);
+  const channels           = useWorkspaceStore(s => s.channels);
+  const navigate           = useNavigate();
   const socketRef = useContext(SocketContext);
   const user = useAuthStore(s => s.user);
   const role    = useWorkspaceStore(s => s.role);
@@ -330,6 +334,9 @@ export default function BoardView() {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
   const [showTeamPicker, setShowTeamPicker] = useState(false);
+  const [showChannelPopover, setShowChannelPopover] = useState(false);
+  const [channelPrivate, setChannelPrivate] = useState(false);
+  const [channelCreating, setChannelCreating] = useState(false);
   const newColInputRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -621,28 +628,6 @@ export default function BoardView() {
                   >
                     {assignedTeam ? `👥 ${assignedTeam.name}` : '+ Assign team'}
                   </button>
-                  {assignedTeam && assignedTeam.members.length > 0 && (
-                    <div className="flex items-center" style={{ marginLeft: 6 }}>
-                      {assignedTeam.members.slice(0, 5).map((m, i) => (
-                        m.avatar_url ? (
-                          <img key={m.id} src={m.avatar_url} title={m.name}
-                            className="w-5 h-5 rounded-full"
-                            style={{ marginLeft: i === 0 ? 0 : -6, border: '2px solid var(--surface)', flexShrink: 0 }} />
-                        ) : (
-                          <div key={m.id} title={m.name}
-                            className="w-5 h-5 rounded-full flex items-center justify-center"
-                            style={{ marginLeft: i === 0 ? 0 : -6, border: '2px solid var(--surface)', background: '#7C3AED', fontSize: 9, fontWeight: 600, color: '#fff', flexShrink: 0 }}>
-                            {m.name[0]}
-                          </div>
-                        )
-                      ))}
-                      {assignedTeam.members.length > 5 && (
-                        <span style={{ fontSize: 10, color: 'var(--faint)', marginLeft: 4 }}>
-                          +{assignedTeam.members.length - 5}
-                        </span>
-                      )}
-                    </div>
-                  )}
                   {showTeamPicker && canAssign && (
                     <>
                       <div className="fixed inset-0" style={{ zIndex: 49 }} onClick={() => setShowTeamPicker(false)} />
@@ -693,6 +678,94 @@ export default function BoardView() {
                 </div>
               );
             })()}
+          {/* Board channel button */}
+          {(() => {
+            const linkedChannel = board?.channel_id ? channels.find(c => c.id === board.channel_id) : null;
+            if (linkedChannel) {
+              return (
+                <button
+                  onClick={() => navigate(`/channel/${linkedChannel.id}`)}
+                  style={{
+                    fontSize: 11, fontWeight: 500, letterSpacing: '0.04em',
+                    color: 'var(--paper)', background: '#6366f1',
+                    border: 'none', padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}
+                  title={`Open #${linkedChannel.name}`}
+                >
+                  <Hash size={10} />
+                  {linkedChannel.name}
+                </button>
+              );
+            }
+            const canManage = !!user && (role === 'admin' || board?.created_by === user.id);
+            if (!canManage) return null;
+            return (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowChannelPopover(v => !v)}
+                  style={{
+                    fontSize: 11, fontWeight: 500, letterSpacing: '0.04em',
+                    color: 'var(--faint)', background: 'transparent',
+                    border: '1px dashed var(--rule)', padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--ink)')}
+                  onMouseLeave={e => { if (!showChannelPopover) e.currentTarget.style.borderColor = 'var(--rule)'; }}
+                >
+                  <Hash size={10} />
+                  Add channel
+                </button>
+                {showChannelPopover && (
+                  <>
+                    <div className="fixed inset-0" style={{ zIndex: 49 }} onClick={() => setShowChannelPopover(false)} />
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 50,
+                      background: 'var(--paper)', border: '1px solid var(--rule)',
+                      minWidth: 220, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 12,
+                    }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>Create board channel</p>
+                      <div className="flex items-center gap-4 mb-3">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="bv-ch-priv" checked={!channelPrivate}
+                            onChange={() => setChannelPrivate(false)} className="accent-primary-500" />
+                          <span style={{ fontSize: 12, color: 'var(--ink)' }}>Public</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="bv-ch-priv" checked={channelPrivate}
+                            onChange={() => setChannelPrivate(true)} className="accent-primary-500" />
+                          <span style={{ fontSize: 12, color: 'var(--ink)' }}>Private</span>
+                        </label>
+                      </div>
+                      <p style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 10 }}>
+                        # {board?.name.trim().toLowerCase().replace(/\s+/g, '-') ?? 'board-channel'}
+                      </p>
+                      <button
+                        disabled={channelCreating}
+                        onClick={async () => {
+                          if (!boardId || channelCreating) return;
+                          setChannelCreating(true);
+                          try {
+                            const { data } = await client.post(`/api/boards/${boardId}/channel`, { is_private: channelPrivate });
+                            updateBoardChannel(boardId, data.id);
+                            addChannel(data);
+                            setShowChannelPopover(false);
+                            navigate(`/channel/${data.id}`);
+                          } catch { /* ignore */ } finally {
+                            setChannelCreating(false);
+                          }
+                        }}
+                        className="btn-primary w-full flex items-center justify-center gap-1.5 disabled:opacity-60"
+                        style={{ fontSize: 12 }}
+                      >
+                        {channelCreating ? 'Creating…' : 'Create channel'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
           </div>
         </div>
         <div className="flex items-baseline gap-6">

@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { eq, and, asc, sql, inArray } from 'drizzle-orm';
-import { db, tasks, task_assignees, boards, columns, messages, users, notifications, teams, team_members, type NewTask } from '../db';
+import { eq, and, asc, sql, inArray, desc } from 'drizzle-orm';
+import { db, tasks, task_assignees, boards, columns, messages, users, notifications, teams, team_members, task_history, type NewTask, type NewTaskHistory } from '../db';
 
 export async function getTaskById(id: string, workspaceId: string) {
   const rows = await db.execute(sql`
@@ -215,4 +215,34 @@ export async function getLastColumnId(boardId: string): Promise<string | null> {
 export async function getBoardName(boardId: string): Promise<string> {
   const row = await db.query.boards.findFirst({ where: eq(boards.id, boardId), columns: { name: true } });
   return row?.name ?? 'a board';
+}
+
+export async function getColumnTitle(columnId: string): Promise<string> {
+  const rows = await db.execute(sql`SELECT title FROM columns WHERE id = ${columnId}`);
+  return ((rows.rows ?? rows) as any[])[0]?.title ?? columnId;
+}
+
+export async function getActorInfo(userId: string): Promise<{ name: string; avatar_url: string | null }> {
+  const rows = await db.execute(sql`SELECT name, avatar_url FROM users WHERE id = ${userId}`);
+  const row = ((rows.rows ?? rows) as any[])[0];
+  return { name: row?.name ?? 'A user', avatar_url: row?.avatar_url ?? null };
+}
+
+export async function insertTaskHistory(entry: Omit<NewTaskHistory, 'id' | 'created_at'>) {
+  await db.insert(task_history).values({ id: uuidv4(), ...entry });
+}
+
+export async function getTaskHistory(taskId: string, workspaceId: string) {
+  // Verify task belongs to workspace before returning history
+  const rows = await db.execute(sql`
+    SELECT th.id, th.task_id, th.actor_id, th.actor_name, th.actor_avatar,
+           th.action, th.field, th.old_value, th.new_value, th.created_at
+    FROM task_history th
+    JOIN tasks t ON th.task_id = t.id
+    JOIN boards b ON t.board_id = b.id
+    WHERE th.task_id = ${taskId} AND b.workspace_id = ${workspaceId}
+    ORDER BY th.created_at DESC
+    LIMIT 100
+  `);
+  return (rows.rows ?? rows) as any[];
 }

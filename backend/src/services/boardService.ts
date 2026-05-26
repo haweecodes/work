@@ -43,6 +43,17 @@ export async function updateBoardTeam(boardId: string, teamId: string | null) {
   return board;
 }
 
+export async function getBoardChannel(boardId: string) {
+  return db.query.boards.findFirst({
+    where: eq(boards.id, boardId),
+    columns: { channel_id: true, workspace_id: true },
+  });
+}
+
+export async function setBoardChannel(boardId: string, channelId: string) {
+  await db.update(boards).set({ channel_id: channelId }).where(eq(boards.id, boardId));
+}
+
 export async function getColumnsWithTasks(boardId: string) {
   const cols = await db.select().from(columns)
     .where(eq(columns.board_id, boardId))

@@ -15,6 +15,7 @@ interface BoardState {
   addColumn: (col: Omit<Column, 'tasks'>) => void;
   updateBoardName: (id: string, name: string) => void;
   updateBoardTeam: (id: string, teamId: string | null) => void;
+  updateBoardChannel: (id: string, channelId: string | null) => void;
 }
 
 const useBoardStore = create<BoardState>((set) => ({
@@ -88,6 +89,9 @@ const useBoardStore = create<BoardState>((set) => ({
 
   updateBoardTeam: (id: string, teamId: string | null) =>
     set(s => ({ boards: s.boards.map(b => b.id === id ? { ...b, team_id: teamId } : b) })),
+
+  updateBoardChannel: (id: string, channelId: string | null) =>
+    set(s => ({ boards: s.boards.map(b => b.id === id ? { ...b, channel_id: channelId } : b) })),
 }));
 
 export default useBoardStore;

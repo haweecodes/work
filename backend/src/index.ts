@@ -14,7 +14,7 @@ import { initSocket } from './socket';
 import authRoutes, { setIo as setAuthIo } from './routes/auth';
 import workspaceRoutes, { setIo as setWorkspaceIo } from './routes/workspaces';
 import channelRoutes, { setIo as setChannelIo } from './routes/channels';
-import boardRoutes from './routes/boards';
+import boardRoutes, { setIo as setBoardIo } from './routes/boards';
 import taskRoutes, { setIo as setTaskIo } from './routes/tasks';
 import dmRoutes, { setIo as setDmIo } from './routes/dms';
 import notificationRoutes, { setIo as setNotifIo } from './routes/notifications';
@@ -56,6 +56,7 @@ setTaskIo(io);
 setDmIo(io);
 setNotifIo(io);
 setTaskUpdateIo(io);
+setBoardIo(io);
 
 // Routes
 // Auth and workspace management are unguarded — no workspace context needed

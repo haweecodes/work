@@ -1,9 +1,12 @@
 import { Request, Response } from 'express';
 import { Server } from 'socket.io';
 import * as taskSvc from '../services/taskService';
+import * as boardSvc from '../services/boardService';
+import * as channelSvc from '../services/channelService';
 
 let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
+
 
 export async function listByBoard(req: Request, res: Response) {
   // Thin wrapper — board columns endpoint covers the enriched version
@@ -49,6 +52,31 @@ export async function create(req: Request, res: Response) {
 
     const task = await taskSvc.getEnrichedTask(id);
     if (io) io.to(`board:${board_id}`).emit('task_updated', { type: 'created', task });
+
+    // Record creation history
+    const actor = await taskSvc.getActorInfo(req.user.id);
+    await taskSvc.insertTaskHistory({
+      task_id: id, actor_id: req.user.id,
+      actor_name: actor.name, actor_avatar: actor.avatar_url,
+      action: 'created',
+    });
+
+    // Post system message to board channel and auto-add assignees to private channel
+    const boardCh = await boardSvc.getBoardChannel(board_id);
+    if (boardCh?.channel_id) {
+      const chInfo = await channelSvc.getChannelById(boardCh.channel_id, boardCh.workspace_id);
+      const msg = await channelSvc.createSystemMessage(boardCh.channel_id, req.user.id, `[${task_key}] "${title.trim()}" was created`);
+      if (io && msg) io.to(`channel:${boardCh.channel_id}`).emit('new_message', msg);
+      if (chInfo?.is_private && Array.isArray(assignee_ids)) {
+        for (const uid of assignee_ids) {
+          await channelSvc.addChannelMemberSafe(boardCh.channel_id, uid);
+          if (uid !== req.user.id) {
+            const updatedChannel = await channelSvc.getChannelById(boardCh.channel_id, boardCh.workspace_id);
+            if (io && updatedChannel) io.to(`user:${uid}`).emit('channel_created', updatedChannel);
+          }
+        }
+      }
+    }
 
     // Notify team members of the new task
     const teamMembers = await taskSvc.getBoardTeamMembers(board_id);
@@ -135,15 +163,24 @@ export async function update(req: Request, res: Response) {
     }
 
     // Assignee diff
+    const addedAssigneeIds: string[] = [];
     if (Array.isArray(assignee_ids)) {
       const actorName = await taskSvc.getUserName(req.user.id);
       const currentAssignees = await taskSvc.getTaskAssignees(String(req.params.id));
       const currentIds = new Set(currentAssignees.map(a => a.user_id));
       const newIds = new Set<string>(assignee_ids);
 
+      const assigneeActor = await taskSvc.getActorInfo(req.user.id);
       for (const uid of newIds) {
         if (!currentIds.has(uid)) {
+          addedAssigneeIds.push(uid);
           await taskSvc.addAssignee(String(req.params.id), uid);
+          const assigneeName = await taskSvc.getUserName(uid);
+          await taskSvc.insertTaskHistory({
+            task_id: String(req.params.id), actor_id: req.user.id,
+            actor_name: assigneeActor.name, actor_avatar: assigneeActor.avatar_url,
+            action: 'assignee_added', field: 'assignees', old_value: null, new_value: assigneeName,
+          });
           if (uid !== req.user.id) {
             const msg = `${actorName} assigned you to "${title ?? task.title}"`;
             const notifId = await taskSvc.createAssignmentNotification(uid, 'task_assigned', String(req.params.id), msg, req.workspaceId!);
@@ -154,6 +191,12 @@ export async function update(req: Request, res: Response) {
       for (const uid of currentIds) {
         if (!newIds.has(uid)) {
           await taskSvc.removeAssignee(String(req.params.id), uid);
+          const assigneeName = await taskSvc.getUserName(uid);
+          await taskSvc.insertTaskHistory({
+            task_id: String(req.params.id), actor_id: req.user.id,
+            actor_name: assigneeActor.name, actor_avatar: assigneeActor.avatar_url,
+            action: 'assignee_removed', field: 'assignees', old_value: assigneeName, new_value: null,
+          });
           if (uid !== req.user.id) {
             const msg = `${actorName} removed you from "${title ?? task.title}"`;
             const notifId = await taskSvc.createAssignmentNotification(uid, 'task_unassigned', String(req.params.id), msg, req.workspaceId!);
@@ -164,12 +207,59 @@ export async function update(req: Request, res: Response) {
     }
 
     const updated = await taskSvc.getEnrichedTask(String(req.params.id));
+
+    // Record field-level history
+    const histActor = await taskSvc.getActorInfo(req.user.id);
+    const histEntries: Array<{ field: string; old_value: string | null; new_value: string | null }> = [];
+    if (title !== undefined && title !== task.title) histEntries.push({ field: 'title', old_value: task.title, new_value: title });
+    if (description !== undefined && description !== task.description) histEntries.push({ field: 'description', old_value: null, new_value: null });
+    if (priority !== undefined && priority !== task.priority) histEntries.push({ field: 'priority', old_value: task.priority ?? null, new_value: priority });
+    if (due_date !== undefined) {
+      const oldDate = task.due_date ? String(task.due_date).slice(0, 10) : null;
+      const newDate = due_date ? String(due_date).slice(0, 10) : null;
+      if (oldDate !== newDate) histEntries.push({ field: 'due_date', old_value: oldDate, new_value: newDate });
+    }
+    if (resolvedColumnId !== task.column_id) {
+      const oldCol = await taskSvc.getColumnTitle(task.column_id);
+      const newCol = await taskSvc.getColumnTitle(resolvedColumnId);
+      histEntries.push({ field: 'column', old_value: oldCol, new_value: newCol });
+    }
+    if (resolvedBoardId !== task.board_id) {
+      const oldBoard = await taskSvc.getBoardName(task.board_id);
+      const newBoard = await taskSvc.getBoardName(resolvedBoardId);
+      histEntries.push({ field: 'board', old_value: oldBoard, new_value: newBoard });
+    }
+    for (const entry of histEntries) {
+      await taskSvc.insertTaskHistory({
+        task_id: String(req.params.id), actor_id: req.user.id,
+        actor_name: histActor.name, actor_avatar: histActor.avatar_url,
+        action: 'updated', ...entry,
+      });
+    }
+
     if (io) {
       if (board_id && board_id !== task.board_id) {
         io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: String(req.params.id) });
       }
       io.to(`board:${resolvedBoardId}`).emit('task_updated', { type: 'updated', task: updated });
     }
+
+    // Post system message and auto-add new assignees to private board channel
+    const boardCh = await boardSvc.getBoardChannel(resolvedBoardId);
+    if (boardCh?.channel_id) {
+      const chInfo = await channelSvc.getChannelById(boardCh.channel_id, boardCh.workspace_id);
+      const msg = await channelSvc.createSystemMessage(boardCh.channel_id, req.user.id, `[${updated?.task_key ?? task.task_key}] "${updated?.title ?? task.title}" was updated`);
+      if (io && msg) io.to(`channel:${boardCh.channel_id}`).emit('new_message', msg);
+      if (chInfo?.is_private && addedAssigneeIds.length > 0) {
+        for (const uid of addedAssigneeIds) {
+          await channelSvc.addChannelMemberSafe(boardCh.channel_id, uid);
+          if (uid !== req.user.id) {
+            if (io) io.to(`user:${uid}`).emit('channel_created', chInfo);
+          }
+        }
+      }
+    }
+
     res.json(updated);
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -183,13 +273,25 @@ export async function move(req: Request, res: Response) {
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
     const targetColumnId = column_id ?? task.column_id;
+    const oldColumnTitle = await taskSvc.getColumnTitle(task.column_id);
     await taskSvc.moveTask(String(req.params.id), targetColumnId, position ?? task.position);
     const updated = await taskSvc.getEnrichedTask(String(req.params.id));
     if (io) io.to(`board:${updated!.board_id}`).emit('task_updated', { type: 'moved', task: updated });
 
+    if (targetColumnId !== task.column_id) {
+      const moveActor = await taskSvc.getActorInfo(req.user.id);
+      await taskSvc.insertTaskHistory({
+        task_id: String(req.params.id), actor_id: req.user.id,
+        actor_name: moveActor.name, actor_avatar: moveActor.avatar_url,
+        action: 'moved', field: 'column',
+        old_value: oldColumnTitle, new_value: updated?.column_title ?? targetColumnId,
+      });
+    }
+
     // Notify team members when task is moved to the last (done) column
     const lastColId = await taskSvc.getLastColumnId(updated!.board_id);
-    if (lastColId && targetColumnId === lastColId && task.column_id !== targetColumnId) {
+    const isCompleted = !!(lastColId && targetColumnId === lastColId && task.column_id !== targetColumnId);
+    if (isCompleted) {
       const teamMembers = await taskSvc.getBoardTeamMembers(updated!.board_id);
       if (teamMembers.length > 0) {
         const actorName = await taskSvc.getUserName(req.user.id);
@@ -201,6 +303,17 @@ export async function move(req: Request, res: Response) {
           if (io) io.to(`user:${user_id}`).emit('notification', { id: notifId, type: 'task_assigned', message: msg, reference_id: String(req.params.id), reference_type: 'task', workspace_id: req.workspaceId });
         }
       }
+    }
+
+    // Post system message to board channel
+    const boardCh = await boardSvc.getBoardChannel(updated!.board_id);
+    if (boardCh?.channel_id) {
+      const colTitle = updated?.column_title ?? targetColumnId;
+      const content = isCompleted
+        ? `[${updated?.task_key}] "${updated?.title}" was completed ✓`
+        : `[${updated?.task_key}] "${updated?.title}" → ${colTitle}`;
+      const sysMsg = await channelSvc.createSystemMessage(boardCh.channel_id, req.user.id, content);
+      if (io && sysMsg) io.to(`channel:${boardCh.channel_id}`).emit('new_message', sysMsg);
     }
 
     res.json(updated);
@@ -219,6 +332,15 @@ export async function resolveByKey(req: Request, res: Response) {
   }
 }
 
+export async function getHistory(req: Request, res: Response) {
+  try {
+    const history = await taskSvc.getTaskHistory(String(req.params.id), req.workspaceId!);
+    res.json(history);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 export async function deleteTask(req: Request, res: Response) {
   try {
     const task = await taskSvc.getTaskById(String(req.params.id), req.workspaceId!);
@@ -226,6 +348,13 @@ export async function deleteTask(req: Request, res: Response) {
 
     await taskSvc.deleteTaskCascade(String(req.params.id));
     if (io) io.to(`board:${task.board_id}`).emit('task_updated', { type: 'deleted', task_id: String(req.params.id) });
+
+    const boardCh = await boardSvc.getBoardChannel(task.board_id);
+    if (boardCh?.channel_id) {
+      const sysMsg = await channelSvc.createSystemMessage(boardCh.channel_id, req.user.id, `[${task.task_key}] "${task.title}" was deleted`);
+      if (io && sysMsg) io.to(`channel:${boardCh.channel_id}`).emit('new_message', sysMsg);
+    }
+
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Server error' });

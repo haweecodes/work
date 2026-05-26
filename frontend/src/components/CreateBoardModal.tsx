@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import client from '../api/client';
 import useWorkspaceStore from '../store/workspaceStore';
 import useBoardStore from '../store/boardStore';
+import type { Channel } from '../types';
 
 const TEMPLATES: { id: string; label: string; desc: string; emoji: string; columns: string[] }[] = [
   { id: 'simple',   label: 'Simple',   desc: '2 cols', emoji: '⬜', columns: ['To Do', 'Done'] },
@@ -19,11 +20,14 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
   const navigate = useNavigate();
   const currentWorkspace = useWorkspaceStore(s => s.currentWorkspace);
   const fetchBoards      = useBoardStore(s => s.fetchBoards);
+  const addChannel       = useWorkspaceStore(s => s.addChannel);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('standard');
   const [columns, setColumns] = useState<string[]>(['To Do', 'In Progress', 'In Review', 'Done']);
+  const [createChannel, setCreateChannel] = useState(false);
+  const [channelPrivate, setChannelPrivate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -46,6 +50,8 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
     });
   };
 
+  const channelName = name.trim().toLowerCase().replace(/\s+/g, '-') || 'board-channel';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
@@ -56,11 +62,20 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
     setLoading(true);
     setError('');
     try {
-      const { data } = await client.post('/api/boards', {
+      const body: Record<string, unknown> = {
         workspace_id: currentWorkspace.id,
         name: trimmed,
         columns: validCols,
-      });
+      };
+      if (createChannel) body.channel = { is_private: channelPrivate };
+
+      const { data } = await client.post('/api/boards', body);
+
+      if (data.channel_id && createChannel) {
+        const chRes = await client.get<Channel>(`/api/boards/${data.id}/channel`);
+        if (chRes.data) addChannel(chRes.data);
+      }
+
       await fetchBoards(currentWorkspace.id);
       onClose();
       navigate(`/board/${data.id}`);
@@ -210,6 +225,59 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
                 ))
               )}
             </div>
+          </div>
+
+          {/* Board channel */}
+          <div className="border border-gray-100 rounded-xl p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Board channel</span>
+                <span className="text-xs text-gray-400">Get task updates in a channel</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateChannel(v => !v)}
+                className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${createChannel ? 'bg-primary-500' : 'bg-gray-200'}`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${createChannel ? 'translate-x-4' : 'translate-x-0'}`}
+                />
+              </button>
+            </div>
+
+            {createChannel && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500 w-16 flex-shrink-0">Visibility</span>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="channelPrivacy"
+                        checked={!channelPrivate}
+                        onChange={() => setChannelPrivate(false)}
+                        className="accent-primary-500"
+                      />
+                      <span className="text-xs text-gray-700">Public</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="channelPrivacy"
+                        checked={channelPrivate}
+                        onChange={() => setChannelPrivate(true)}
+                        className="accent-primary-500"
+                      />
+                      <span className="text-xs text-gray-700">Private</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500 w-16 flex-shrink-0">Name</span>
+                  <span className="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded-md"># {channelName}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {error && (

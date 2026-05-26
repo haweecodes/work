@@ -33,6 +33,7 @@ export interface Channel {
   is_private?: number;
   is_archived?: number;
   created_by?: string;
+  board_id?: string | null;
 }
 
 export interface DmThread {
@@ -62,6 +63,7 @@ export interface Board {
   task_sequence?: number;
   created_by?: string;
   team_id?: string | null;
+  channel_id?: string | null;
 }
 
 export interface TaskUpdateResponse {
@@ -176,6 +178,19 @@ export interface Message {
   deleted?: boolean;
   importance?: string;
   mention_priorities?: MentionPriority[];
+}
+
+export interface TaskHistoryEntry {
+  id: string;
+  task_id: string;
+  actor_id: string;
+  actor_name: string;
+  actor_avatar?: string;
+  action: 'created' | 'updated' | 'moved' | 'assignee_added' | 'assignee_removed';
+  field?: string;
+  old_value?: string | null;
+  new_value?: string | null;
+  created_at: string;
 }
 
 export interface Notification {

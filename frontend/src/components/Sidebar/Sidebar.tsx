@@ -262,7 +262,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
               <NavItem
                 key={ch.id}
                 to={`/channel/${ch.id}`}
-                icon={ch.is_private ? Lock : Hash}
+                icon={ch.board_id ? Kanban : ch.is_private ? Lock : Hash}
                 label={ch.name}
                 unread={channelUnread[ch.id] || 0}
               />
