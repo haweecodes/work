@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Hash, Lock, MessageCircle, Kanban, LogOut, type LucideIcon } from 'lucide-react';
+import { Hash, Lock, MessageCircle, Kanban, LogOut, ChevronRight, type LucideIcon } from 'lucide-react';
 import { useNavigate, NavLink } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import useWorkspaceStore from '../../store/workspaceStore';
@@ -30,14 +30,25 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-function SectionLabel({ children, icon: Icon, onAdd }: { children: React.ReactNode; icon?: LucideIcon; onAdd?: () => void }) {
+function SectionLabel({ children, icon: Icon, onAdd, collapsed, onToggle }: {
+  children: React.ReactNode; icon?: LucideIcon; onAdd?: () => void;
+  collapsed?: boolean; onToggle?: () => void;
+}) {
   return (
     <div className="flex items-center justify-between mb-2">
-      <span className="flex items-center gap-1.5" style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 500 }}>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 flex-1 text-left"
+        style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 500, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+      >
+        <ChevronRight
+          size={10}
+          style={{ flexShrink: 0, transition: 'transform 0.15s', transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}
+        />
         {Icon && <Icon size={11} />}
         {children}
-      </span>
-      {onAdd && (
+      </button>
+      {onAdd && !collapsed && (
         <button onClick={onAdd} style={{ fontSize: 14, color: 'var(--faint)', lineHeight: 1 }}
           onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
           onMouseLeave={e => (e.currentTarget.style.color = 'var(--faint)')}>
@@ -113,13 +124,19 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const activeSidebar       = useUIStore(s => s.activeSidebar);
   const openSidebar         = useUIStore(s => s.openSidebar);
   const closeSidebar        = useUIStore(s => s.closeSidebar);
-  const notifUnread         = useNotificationStore(s => s.unreadCount);
-  const allNotifications    = useNotificationStore(s => s.notifications);
-  const actionUnread = allNotifications.filter(n => !n.is_read && (n.type === 'mention' || n.type === 'task_update_request' || n.type === 'task_due')).length;
-  const infoUnread   = notifUnread - actionUnread;
+  const allNotifications = useNotificationStore(s => s.notifications);
+  const { notifUnread, actionUnread, infoUnread } = useMemo(() => {
+    const notifUnread  = allNotifications.filter(n => !n.is_read).length;
+    const actionUnread = allNotifications.filter(n => !n.is_read && (n.type === 'mention' || n.type === 'task_update_request' || n.type === 'task_due')).length;
+    return { notifUnread, actionUnread, infoUnread: notifUnread - actionUnread };
+  }, [allNotifications]);
   const showNotif = activeSidebar?.type === 'notifications';
   const [showWorkspaces, setShowWorkspaces] = useState(false);
   const [addingChannel, setAddingChannel] = useState(false);
+  const [channelsCollapsed, setChannelsCollapsed] = useState(false);
+  const [dmsCollapsed, setDmsCollapsed] = useState(false);
+  const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
+  const [boardsCollapsed, setBoardsCollapsed] = useState(false);
 
   const [newChannelName, setNewChannelName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -232,9 +249,9 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {/* Channels */}
         <section>
-          <SectionLabel icon={Hash} onAdd={() => setAddingChannel(true)}>Channels</SectionLabel>
+          <SectionLabel icon={Hash} onAdd={() => setAddingChannel(true)} collapsed={channelsCollapsed} onToggle={() => setChannelsCollapsed(c => !c)}>Channels</SectionLabel>
 
-          {addingChannel && (
+          {!channelsCollapsed && addingChannel && (
             <form onSubmit={handleAddChannel} className="mb-2 space-y-1">
               <input
                 autoFocus
@@ -257,23 +274,26 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
             </form>
           )}
 
-          <div className="space-y-0">
-            {channels.map(ch => (
-              <NavItem
-                key={ch.id}
-                to={`/channel/${ch.id}`}
-                icon={ch.board_id ? Kanban : ch.is_private ? Lock : Hash}
-                label={ch.name}
-                unread={channelUnread[ch.id] || 0}
-              />
-            ))}
-          </div>
+          {!channelsCollapsed && (
+            <div className="space-y-0">
+              {channels.map(ch => (
+                <NavItem
+                  key={ch.id}
+                  to={`/channel/${ch.id}`}
+                  icon={ch.board_id ? Kanban : ch.is_private ? Lock : Hash}
+                  label={ch.name}
+                  unread={channelUnread[ch.id] || 0}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Direct Messages */}
         <section>
-          <SectionLabel icon={MessageCircle}>Direct Messages</SectionLabel>
+          <SectionLabel icon={MessageCircle} collapsed={dmsCollapsed} onToggle={() => setDmsCollapsed(c => !c)}>Direct Messages</SectionLabel>
 
+          {!dmsCollapsed && (
           <div className="space-y-0">
             {members.filter(m => m.id !== user?.id).map(m => {
               const thread = memberThreadMap.get(m.id);
@@ -333,47 +353,52 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
               <p style={{ fontSize: 13, color: 'var(--faint)', fontStyle: 'italic' }}>No teammates yet</p>
             )}
           </div>
+          )}
         </section>
 
         {/* Workspace tools */}
         <section>
-          <SectionLabel>Workspace</SectionLabel>
-          <div className="space-y-0">
-            <NavItem to="/my-tasks" label="My Tasks" />
-            <NavItem to="/docs" label="Docs" />
-            <NavItem to="/calendar" label="Calendar" />
-          </div>
+          <SectionLabel collapsed={workspaceCollapsed} onToggle={() => setWorkspaceCollapsed(c => !c)}>Workspace</SectionLabel>
+          {!workspaceCollapsed && (
+            <div className="space-y-0">
+              <NavItem to="/my-tasks" label="My Tasks" />
+              <NavItem to="/docs" label="Docs" />
+              <NavItem to="/calendar" label="Calendar" />
+            </div>
+          )}
         </section>
 
         {/* Boards */}
         <section>
-          <SectionLabel icon={Kanban} onAdd={() => openCreateBoard()}>Boards</SectionLabel>
-          <div className="space-y-0">
-            {(() => {
-              const myTeamBoardIds = new Set(
-                teams
-                  .filter(t => t.members.some(m => m.id === user?.id))
-                  .map(t => boards.filter(b => b.team_id === t.id).map(b => b.id))
-                  .flat()
-              );
-              const myBoards    = boards.filter(b => myTeamBoardIds.has(b.id));
-              const otherBoards = boards.filter(b => !myTeamBoardIds.has(b.id));
-              return (
-                <>
-                  {myBoards.map(b => (
-                    <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
-                      title={teams.find(t => t.id === b.team_id)?.name} />
-                  ))}
-                  {myBoards.length > 0 && otherBoards.length > 0 && (
-                    <div style={{ borderTop: '1px solid var(--rule)', margin: '4px 0' }} />
-                  )}
-                  {otherBoards.map(b => (
-                    <NavItem key={b.id} to={`/board/${b.id}`} label={b.name} />
-                  ))}
-                </>
-              );
-            })()}
-          </div>
+          <SectionLabel icon={Kanban} onAdd={() => openCreateBoard()} collapsed={boardsCollapsed} onToggle={() => setBoardsCollapsed(c => !c)}>Boards</SectionLabel>
+          {!boardsCollapsed && (
+            <div className="space-y-0">
+              {(() => {
+                const myTeamBoardIds = new Set(
+                  teams
+                    .filter(t => t.members.some(m => m.id === user?.id))
+                    .map(t => boards.filter(b => b.team_id === t.id).map(b => b.id))
+                    .flat()
+                );
+                const myBoards    = boards.filter(b => myTeamBoardIds.has(b.id));
+                const otherBoards = boards.filter(b => !myTeamBoardIds.has(b.id));
+                return (
+                  <>
+                    {myBoards.map(b => (
+                      <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
+                        title={teams.find(t => t.id === b.team_id)?.name} />
+                    ))}
+                    {myBoards.length > 0 && otherBoards.length > 0 && (
+                      <div style={{ borderTop: '1px solid var(--rule)', margin: '4px 0' }} />
+                    )}
+                    {otherBoards.map(b => (
+                      <NavItem key={b.id} to={`/board/${b.id}`} label={b.name} />
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </section>
       </div>
 

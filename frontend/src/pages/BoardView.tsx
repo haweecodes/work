@@ -52,13 +52,13 @@ function getDueDateState(dueDateStr: string): DueDateState {
   return 'normal';
 }
 
-const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task: Task; onSelect?: () => void; doneColumnId?: string }) {
+const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId, isSelected = false, subtasksCount = 0, completedSubtasksCount = 0, parentTask = null }: {
+  task: Task; onSelect?: () => void; doneColumnId?: string;
+  isSelected?: boolean; subtasksCount?: number; completedSubtasksCount?: number; parentTask?: Task | null;
+}) {
   const [_, setSearchParams] = useSearchParams();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSelfDragging } = useSortable({ id: task.id });
   const setSelectedTask = useBoardStore(s => s.setSelectedTask);
-  const selectedTask    = useBoardStore(s => s.selectedTask);
-  const columns         = useBoardStore(s => s.columns);
-  const isSelected      = selectedTask?.id === task.id;
 
   // Merge dnd-kit's setNodeRef with our own ref so we can scrollIntoView
   const cardElRef = useRef<HTMLDivElement | null>(null);
@@ -72,12 +72,6 @@ const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task
   }, [isSelected]);
   const [copiedKey, setCopiedKey] = useState(false);
   const style = { transform: CSS.Transform.toString(transform), transition } as React.CSSProperties;
-
-  const allTasks = useMemo(() => columns.flatMap(c => c.tasks ?? []), [columns]);
-  const subtasks = useMemo(() => allTasks.filter(t => t.parent_task_id === task.id), [allTasks, task.id]);
-  const subtasksCount = subtasks.length;
-  const completedSubtasksCount = useMemo(() => subtasks.filter(t => t.column_id === doneColumnId).length, [subtasks, doneColumnId]);
-  const parentTask = useMemo(() => task.parent_task_id ? allTasks.find(t => t.id === task.parent_task_id) : null, [allTasks, task.parent_task_id]);
 
   const handleCopyKey = (e: React.MouseEvent) => {
     e.stopPropagation(); // prevent opening the detail panel
@@ -219,7 +213,11 @@ const TaskCard = memo(function TaskCard({ task, onSelect, doneColumnId }: { task
 }, (prev, next) =>
   prev.task === next.task &&
   prev.onSelect === next.onSelect &&
-  prev.doneColumnId === next.doneColumnId
+  prev.doneColumnId === next.doneColumnId &&
+  prev.isSelected === next.isSelected &&
+  prev.subtasksCount === next.subtasksCount &&
+  prev.completedSubtasksCount === next.completedSubtasksCount &&
+  prev.parentTask === next.parentTask
 );
 
 // ── Column ────────────────────────────────────────────────────────────────────
@@ -252,11 +250,26 @@ function EmptyDropZone({ colId, onAddTask }: { colId: string; onAddTask: () => v
   );
 }
 
-const Column = memo(function Column({ col, onAddTask, onTaskSelect, doneColumnId }: {
-  col: ColumnType; onAddTask: (colId: string) => void; onTaskSelect: () => void; doneColumnId?: string;
+const Column = memo(function Column({ col, allTasks, onAddTask, onTaskSelect, doneColumnId }: {
+  col: ColumnType; allTasks: Task[]; onAddTask: (colId: string) => void; onTaskSelect: () => void; doneColumnId?: string;
 }) {
   const isEmpty = !col.tasks || col.tasks.length === 0;
   const sortableItems = isEmpty ? [] : col.tasks!.map(t => t.id);
+  // One subscription per column rather than one per task card
+  const selectedTaskId = useBoardStore(s => s.selectedTask?.id);
+
+  const subtasksById = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const t of allTasks) {
+      if (t.parent_task_id) {
+        const list = map.get(t.parent_task_id);
+        if (list) list.push(t); else map.set(t.parent_task_id, [t]);
+      }
+    }
+    return map;
+  }, [allTasks]);
+
+  const taskById = useMemo(() => new Map(allTasks.map(t => [t.id, t])), [allTasks]);
 
   return (
     <div className="flex-shrink-0 w-72 flex flex-col bg-gray-50/80 rounded-2xl p-3 h-full">
@@ -283,7 +296,18 @@ const Column = memo(function Column({ col, onAddTask, onTaskSelect, doneColumnId
       ) : (
         <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
           <div className="flex-1 overflow-y-auto space-y-2 min-h-[60px]" style={{ scrollbarWidth: 'thin' }}>
-            {col.tasks!.map(task => <TaskCard key={task.id} task={task} onSelect={onTaskSelect} doneColumnId={doneColumnId} />)}
+            {col.tasks!.map(task => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onSelect={onTaskSelect}
+                doneColumnId={doneColumnId}
+                isSelected={selectedTaskId === task.id}
+                subtasksCount={subtasksById.get(task.id)?.length ?? 0}
+                completedSubtasksCount={subtasksById.get(task.id)?.filter(t => t.column_id === doneColumnId).length ?? 0}
+                parentTask={task.parent_task_id ? (taskById.get(task.parent_task_id) ?? null) : null}
+              />
+            ))}
           </div>
         </SortableContext>
       )}
@@ -355,6 +379,8 @@ export default function BoardView() {
     [columns]
   );
 
+  const allTasks = useMemo(() => columns.flatMap(c => c.tasks ?? []), [columns]);
+
   const filteredColumns = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -398,21 +424,12 @@ export default function BoardView() {
   }, []);
 
   useEffect(() => {
-    console.log('[BoardView] Mount/Update useEffect triggered with boardId:', boardId);
-    if (!boardId) {
-      console.warn('[BoardView] No boardId available in params!');
-      return;
-    }
+    if (!boardId) return;
 
-    console.log('[BoardView] Calling fetchColumns for boardId:', boardId);
     setLoading(true);
     fetchColumns(boardId)
-      .then(res => console.log('[BoardView] fetchColumns successful. Columns count:', res.length))
-      .catch(err => console.error('[BoardView] fetchColumns error:', err))
-      .finally(() => {
-        console.log('[BoardView] fetchColumns finally block, setting loading false');
-        setLoading(false);
-      });
+      .catch(() => {})
+      .finally(() => setLoading(false));
 
     const socket = socketRef?.current;
     // Use named handler so cleanup only removes this specific listener
@@ -897,7 +914,7 @@ export default function BoardView() {
         >
           <div className="flex gap-4 h-full min-w-max">
             {filteredColumns.map(col => (
-              <Column key={col.id} col={col} onAddTask={handleAddTask} onTaskSelect={handleTaskSelect} doneColumnId={doneColumnId} />
+              <Column key={col.id} col={col} allTasks={allTasks} onAddTask={handleAddTask} onTaskSelect={handleTaskSelect} doneColumnId={doneColumnId} />
             ))}
 
             {/* Inline "Add column" card */}

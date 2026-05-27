@@ -16,8 +16,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const addPriorityAlert = useNotificationStore(s => s.addPriorityAlert);
   const updateTaskInColumn = useBoardStore(s => s.updateTaskInColumn);
   const removeTask = useBoardStore(s => s.removeTask);
-  const channels = useWorkspaceStore(s => s.channels);
-  const dmThreads = useWorkspaceStore(s => s.dmThreads);
+  // Derive stable string keys so the room-joining effect only fires when the
+  // actual set of rooms changes — not on every DM thread content update.
+  const channelIdsKey = useWorkspaceStore(s => s.channels.map(c => c.id).join(','));
+  const dmIdsKey      = useWorkspaceStore(s => s.dmThreads.map(t => t.id).join(','));
 
   // Track which rooms we currently have joined so we can leave them before joining new ones.
   // This prevents stale events from a previous workspace's channels/DMs from bleeding through.
@@ -134,6 +136,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     if (!socket) return;
 
     const doSwitch = () => {
+      const { channels, dmThreads } = useWorkspaceStore.getState();
       // Leave rooms from the previous workspace
       joinedRoomsRef.current.channels.forEach(id => socket.emit('leave_channel', id));
       joinedRoomsRef.current.dms.forEach(id => socket.emit('leave_dm', id));
@@ -153,7 +156,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     } else {
       socket.once('connect', doSwitch);
     }
-  }, [channels, dmThreads]);
+  }, [channelIdsKey, dmIdsKey]);
 
   return (
     <SocketContext.Provider value={socketRef}>

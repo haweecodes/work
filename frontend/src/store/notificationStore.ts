@@ -60,19 +60,22 @@ const useNotificationStore = create<NotificationState>((set) => ({
   },
 
   markAllRead: async () => {
-    await client.patch('/api/notifications/read');
     set((s) => ({
       notifications: s.notifications.map(n => ({ ...n, is_read: 1 })),
       unreadCount: 0,
     }));
+    await client.patch('/api/notifications/read');
   },
 
   markRead: async (id: string) => {
+    set((s) => {
+      const wasUnread = s.notifications.some(n => n.id === id && !n.is_read);
+      return {
+        notifications: s.notifications.map(n => n.id === id ? { ...n, is_read: 1 } : n),
+        unreadCount: wasUnread ? Math.max(0, s.unreadCount - 1) : s.unreadCount,
+      };
+    });
     await client.patch('/api/notifications/read', { ids: [id] });
-    set((s) => ({
-      notifications: s.notifications.map(n => n.id === id ? { ...n, is_read: 1 } : n),
-      unreadCount: Math.max(0, s.unreadCount - 1),
-    }));
   },
 }));
 

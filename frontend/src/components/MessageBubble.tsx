@@ -370,11 +370,9 @@ function MessageBubble({
   const threadUnread     = useUIStore(s => s.threadUnread);
   const openSidebar      = useUIStore(s => s.openSidebar);
   const navigate         = useNavigate();
-  const boards           = useBoardStore(s => s.boards);
-  const columns          = useBoardStore(s => s.columns);
-  const fetchColumns     = useBoardStore(s => s.fetchColumns);
-  const selectedTask     = useBoardStore(s => s.selectedTask);
-  const setSelectedTask  = useBoardStore(s => s.setSelectedTask);
+  const boards             = useBoardStore(s => s.boards);
+  const fetchColumns       = useBoardStore(s => s.fetchColumns);
+  const setSelectedTask    = useBoardStore(s => s.setSelectedTask);
   const updateTaskInColumn = useBoardStore(s => s.updateTaskInColumn);
   const members          = useWorkspaceStore(s => s.members);
 
@@ -443,9 +441,8 @@ function MessageBubble({
     if (msg.linked_task) { setSelectedTask(msg.linked_task); return; }
 
     const board = boards[0];
-    let boardColumns = columns;
+    let boardColumns = useBoardStore.getState().columns;
 
-    // Lazy-load columns when not yet fetched (e.g. DM view)
     if (board && boardColumns.length === 0) {
       await fetchColumns(board.id);
       boardColumns = useBoardStore.getState().columns;
@@ -567,7 +564,7 @@ function MessageBubble({
           <span style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic' }}>{sysText}</span>
           {isTaskLink && (
             <button
-              onClick={() => { if (msg.linked_task && selectedTask?.id !== msg.linked_task.id) setSelectedTask(msg.linked_task); }}
+              onClick={() => { if (msg.linked_task && useBoardStore.getState().selectedTask?.id !== msg.linked_task.id) setSelectedTask(msg.linked_task); }}
               style={{ fontSize: 11, color: 'var(--muted)', textDecoration: 'none', flexShrink: 0 }}
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'underline'; }}
               onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.textDecoration = 'none'; }}>

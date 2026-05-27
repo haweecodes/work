@@ -395,6 +395,41 @@ Server→client events:
 
 ---
 
+## Development Approach — TDD
+
+**We write tests first.** Before implementing any new feature, route, service function, or bug fix, write a failing test that defines the expected behavior. Only then write the minimum code to make it pass.
+
+### Cycle
+
+1. **Red** — write a failing test that describes the desired behavior.
+2. **Green** — write the simplest code that makes it pass; no extras.
+3. **Refactor** — clean up without breaking the test.
+
+### Test Runners
+
+| Package | Runner | Config | Test location |
+|---|---|---|---|
+| `backend` | Jest (`yarn test`) | `jest.config.js` | `src/__tests__/**/*.test.ts` |
+| `frontend` | Vitest (`yarn test`) | `vitest.config.ts` | `src/__tests__/**/*.test.{ts,tsx}` |
+
+### What to test
+
+- **Backend service functions** (`src/services/`) — unit tests with mocked `db` (see `taskService.test.ts` as the pattern). Test the logic in isolation; do not hit Neon.
+- **Backend route handlers** — integration-style tests using `supertest` against the Express app with mocked middleware.
+- **Frontend stores** — unit tests for Zustand actions and derived state; mock Axios calls.
+- **Frontend components** — component tests for user-facing logic (form validation, conditional rendering, interaction flows) using Vitest + jsdom + Testing Library.
+
+### Rules
+
+- Never skip writing a test because the feature "seems simple." Simple code still has contracts.
+- Tests must be deterministic — mock all I/O (DB, network, timers, UUID generation).
+- One assertion per logical concept; prefer `expect(x).toBe(y)` over multi-concern assertions.
+- Test file names mirror the source file: `src/services/taskService.ts` → `src/__tests__/services/taskService.test.ts`.
+- Do not write tests just to hit coverage numbers; test behavior, not implementation details.
+- When fixing a bug, write the regression test first so the bug is provably reproducible before the fix is applied.
+
+---
+
 ## Key Conventions
 
 - **All IDs** are UUIDs (string), generated with the `uuid` package on the backend.

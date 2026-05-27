@@ -74,11 +74,13 @@ const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     localStorage.setItem('fw_workspace', JSON.stringify(workspace));
     set({ currentWorkspace: workspace, channels: [], dmThreads: [], members: [] });
-    await get().fetchChannels(workspace.id);
-    await get().fetchMembers(workspace.id);
-    await get().fetchDmThreads(workspace.id);
-    await get().fetchSettings(workspace.id);
-    await get().fetchTeams(workspace.id);
+    await Promise.all([
+      get().fetchChannels(workspace.id),
+      get().fetchMembers(workspace.id),
+      get().fetchDmThreads(workspace.id),
+      get().fetchSettings(workspace.id),
+      get().fetchTeams(workspace.id),
+    ]);
   },
 
   fetchWorkspaces: async () => {
