@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import client from '../api/client';
 import type { User } from '../types';
+import useWorkspaceStore from './workspaceStore';
+import useBoardStore from './boardStore';
+import useUIStore from './uiStore';
+import useNotificationStore from './notificationStore';
 
 interface AuthState {
   user: User | null;
@@ -24,7 +28,35 @@ const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('fw_token');
     localStorage.removeItem('fw_user');
+    localStorage.removeItem('fw_workspace');
     set({ user: null, token: null });
+
+    // Wipe all workspace-scoped in-memory state so the next user
+    // starts with a clean slate and cannot see stale data or trigger
+    // API calls against the previous user's resources.
+    useWorkspaceStore.setState({
+      currentWorkspace: null,
+      workspaces: [],
+      channels: [],
+      dmThreads: [],
+      members: [],
+      teams: [],
+      role: null,
+      isInitialized: false,
+    });
+    useBoardStore.setState({ boards: [], columns: [], selectedTask: null });
+    useUIStore.setState({
+      activeSidebar: null,
+      shareMessage: null,
+      showCreateBoard: false,
+      showInvite: false,
+      showSettings: false,
+      showUserSettings: false,
+      channelUnread: {},
+      dmUnread: {},
+      threadUnread: {},
+    });
+    useNotificationStore.setState({ notifications: [], unreadCount: 0, priorityAlerts: [] });
   },
 
   updateUser: async (fields) => {

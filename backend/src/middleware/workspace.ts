@@ -29,21 +29,19 @@ export function requireWorkspace() {
       return;
     }
 
-    const workspace = await get<{ id: string; name: string }>(
-      'SELECT id, name FROM workspaces WHERE id = ?',
-      [workspaceId]
+    // One query: workspace exists AND user is a member (happy-path costs 1 round-trip)
+    const row = await get<{ id: string; name: string }>(
+      `SELECT w.id, w.name
+       FROM workspaces w
+       JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
+       WHERE w.id = ?`,
+      [req.user.id, workspaceId]
     );
-    if (!workspace) {
-      res.status(404).json({ error: 'Workspace not found' });
-      return;
-    }
-
-    const member = await get(
-      'SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
-      [workspaceId, req.user.id]
-    );
-    if (!member) {
-      res.status(403).json({ error: 'Not a member of this workspace' });
+    if (!row) {
+      const exists = await get('SELECT 1 FROM workspaces WHERE id = ?', [workspaceId]);
+      res.status(exists ? 403 : 404).json({
+        error: exists ? 'Not a member of this workspace' : 'Workspace not found',
+      });
       return;
     }
 

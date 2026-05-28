@@ -75,21 +75,27 @@ export default function AppLayout() {
     (async () => {
       const workspaces = await fetchWorkspaces();
       let ws = currentWorkspace;
-      
-      if (!ws && workspaces.length === 0) { 
-        useWorkspaceStore.setState({ isInitialized: true });
-        navigate('/workspace/create'); 
-        return; 
+
+      // Discard any cached workspace the current user is not a member of
+      if (ws && !workspaces.some(w => w.id === ws!.id)) {
+        localStorage.removeItem('fw_workspace');
+        useWorkspaceStore.setState({ currentWorkspace: null });
+        ws = null;
       }
-      
+
+      if (!ws && workspaces.length === 0) {
+        useWorkspaceStore.setState({ isInitialized: true });
+        navigate('/workspace/create');
+        return;
+      }
+
       if (!ws && workspaces.length > 0) ws = workspaces[0];
-      
+
       if (ws) {
         await setCurrentWorkspace(ws);
         await fetchBoards(ws.id);
       }
 
-      
       useWorkspaceStore.setState({ isInitialized: true });
     })();
   }, []);
