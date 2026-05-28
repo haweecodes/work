@@ -115,6 +115,14 @@ export async function initDb(): Promise<void> {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_task_comments_task_id ON task_comments(task_id, created_at ASC)`;
     await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS overdue_notified_at TIMESTAMPTZ`;
+    await sql`ALTER TABLE boards ADD COLUMN IF NOT EXISTS is_private INTEGER DEFAULT 0`;
+    await sql`CREATE TABLE IF NOT EXISTS board_members (
+      board_id TEXT NOT NULL,
+      user_id  TEXT NOT NULL,
+      PRIMARY KEY (board_id, user_id)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_board_members_board ON board_members(board_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_board_members_user  ON board_members(user_id)`;
 
     console.log('✅ Connected to Neon PostgreSQL');
   } catch (err) {

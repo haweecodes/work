@@ -24,6 +24,9 @@ export async function create(req: Request, res: Response) {
     const boardOk = await taskSvc.boardBelongsToWorkspace(board_id, req.workspaceId!);
     if (!boardOk) return res.status(404).json({ error: 'Board not found' });
 
+    const canAccess = await boardSvc.isBoardAccessible(board_id, req.user.id, req.workspaceId!);
+    if (!canAccess) return res.status(403).json({ error: 'Access denied' });
+
     const task_sequence = await taskSvc.getNextTaskSequence(board_id);
     const task_key = `${board_id.slice(0, 3).toUpperCase()}-${task_sequence}`;
 

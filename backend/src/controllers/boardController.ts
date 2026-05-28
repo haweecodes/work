@@ -7,7 +7,7 @@ let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
 
 export async function list(req: Request, res: Response) {
-  const boards = await boardService.getBoardsByWorkspace(String(req.params.workspaceId));
+  const boards = await boardService.getBoardsByWorkspace(String(req.params.workspaceId), req.user.id);
   res.json(boards);
 }
 
@@ -29,10 +29,11 @@ export async function create(req: Request, res: Response) {
       ? columns
       : ['To Do', 'In Progress', 'In Review', 'Done'];
 
-    const board = await boardService.createBoard(req.workspaceId!, name, projectKey, req.user.id, colTitles);
+    const isPrivate = !!req.body.is_private;
+    const board = await boardService.createBoard(req.workspaceId!, name, projectKey, req.user.id, colTitles, isPrivate);
 
     if (channel && typeof channel === 'object') {
-      const isPrivate = !!channel.is_private;
+      // Channel always inherits the board's privacy setting
       const createdChannel = await channelSvc.createBoardChannel(
         req.workspaceId!, board.id, name, isPrivate, req.user.id, null,
       );
@@ -84,8 +85,98 @@ export async function getColumns(req: Request, res: Response) {
   const board = await boardService.getBoardById(String(req.params.boardId), req.workspaceId!);
   if (!board) return res.status(404).json({ error: 'Board not found' });
 
+  const canAccess = await boardService.isBoardAccessible(String(req.params.boardId), req.user.id, req.workspaceId!);
+  if (!canAccess) return res.status(403).json({ error: 'Access denied' });
+
   const columns = await boardService.getColumnsWithTasks(String(req.params.boardId));
   res.json(columns);
+}
+
+export async function getMembers(req: Request, res: Response) {
+  try {
+    const boardId = String(req.params.boardId);
+    const board = await boardService.getBoardById(boardId, req.workspaceId!);
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+
+    const canAccess = await boardService.isBoardAccessible(boardId, req.user.id, req.workspaceId!);
+    if (!canAccess) return res.status(403).json({ error: 'Access denied' });
+
+    const members = await boardService.getBoardMembers(boardId);
+    res.json(members);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function addMember(req: Request, res: Response) {
+  try {
+    const boardId = String(req.params.boardId);
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id required' });
+
+    const board = await boardService.getBoardById(boardId, req.workspaceId!);
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+
+    if (board.created_by !== req.user.id) {
+      const get = (await import('../db')).get;
+      const row = await get<{ role: string }>(
+        'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
+        [req.workspaceId, req.user.id]
+      );
+      if (row?.role !== 'admin') return res.status(403).json({ error: 'Only the board owner can manage members' });
+    }
+
+    await boardService.addBoardMember(boardId, String(user_id));
+
+    if (io) {
+      const addedUser = await channelSvc.getUserById(String(user_id));
+      if (board.channel_id) {
+        const ch = await channelSvc.getChannelById(board.channel_id, req.workspaceId!);
+        if (ch?.is_private) io.to(`user:${user_id}`).emit('channel_created', ch);
+      }
+      // Emit board_member_updated so the new member's sidebar refreshes boards
+      io.to(`user:${user_id}`).emit('board_member_added', { board_id: boardId });
+      // Notify existing board room
+      io.to(`board:${boardId}`).emit('board_members_updated', { board_id: boardId });
+    }
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+export async function removeMember(req: Request, res: Response) {
+  try {
+    const boardId = String(req.params.boardId);
+    const targetUserId = String(req.params.userId);
+
+    const board = await boardService.getBoardById(boardId, req.workspaceId!);
+    if (!board) return res.status(404).json({ error: 'Board not found' });
+
+    const isSelf = targetUserId === req.user.id;
+    if (!isSelf) {
+      if (board.created_by !== req.user.id) {
+        const get = (await import('../db')).get;
+        const row = await get<{ role: string }>(
+          'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?',
+          [req.workspaceId, req.user.id]
+        );
+        if (row?.role !== 'admin') return res.status(403).json({ error: 'Only the board owner can remove members' });
+      }
+    }
+
+    await boardService.removeBoardMember(boardId, targetUserId);
+
+    if (io) {
+      io.to(`user:${targetUserId}`).emit('board_member_removed', { board_id: boardId });
+      io.to(`board:${boardId}`).emit('board_members_updated', { board_id: boardId });
+    }
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
 }
 
 export async function addColumn(req: Request, res: Response) {
@@ -124,7 +215,8 @@ export async function createBoardChannelHandler(req: Request, res: Response) {
     if (!board) return res.status(404).json({ error: 'Board not found' });
     if (board.channel_id) return res.status(409).json({ error: 'Board already has a channel' });
 
-    const isPrivate = !!is_private;
+    // Channel always inherits the board's privacy setting
+    const isPrivate = !!board.is_private;
     const channel = await channelSvc.createBoardChannel(
       req.workspaceId!, board.id, board.name, isPrivate, req.user.id, board.team_id ?? null,
     );

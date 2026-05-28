@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { eq, and, sql, inArray } from 'drizzle-orm';
-import { db, channels, channel_members, messages, message_reactions, users, workspace_members, notifications, tasks, task_assignees, team_members } from '../db';
+import { db, channels, channel_members, messages, message_reactions, users, workspace_members, notifications, tasks, task_assignees, team_members, board_members } from '../db';
 import { enrichMessages } from '../lib/messageEnrich';
 
 export async function getChannelsByWorkspace(workspaceId: string, userId: string) {
@@ -245,6 +245,11 @@ export async function getUserById(userId: string) {
 
 export async function addChannelMemberSafe(channelId: string, userId: string) {
   await db.insert(channel_members).values({ channel_id: channelId, user_id: userId }).onConflictDoNothing();
+  // Sync: if this channel is linked to a board, also add the user to board_members
+  const ch = await db.query.channels.findFirst({ where: eq(channels.id, channelId), columns: { board_id: true } });
+  if (ch?.board_id) {
+    await db.insert(board_members).values({ board_id: ch.board_id, user_id: userId }).onConflictDoNothing();
+  }
 }
 
 export async function getTaskAssigneesForBoard(boardId: string) {
@@ -308,6 +313,13 @@ export async function removeChannelMember(channelId: string, userId: string) {
   await db.delete(channel_members).where(
     and(eq(channel_members.channel_id, channelId), eq(channel_members.user_id, userId))
   );
+  // Sync: if this channel is linked to a board, also remove the user from board_members
+  const ch = await db.query.channels.findFirst({ where: eq(channels.id, channelId), columns: { board_id: true } });
+  if (ch?.board_id) {
+    await db.delete(board_members).where(
+      and(eq(board_members.board_id, ch.board_id), eq(board_members.user_id, userId))
+    );
+  }
 }
 
 export async function createSystemMessage(channelId: string, senderId: string, content: string) {

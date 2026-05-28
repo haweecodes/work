@@ -26,8 +26,8 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
   const [error, setError] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('standard');
   const [columns, setColumns] = useState<string[]>(['To Do', 'In Progress', 'In Review', 'Done']);
+  const [boardPrivate, setBoardPrivate] = useState(false);
   const [createChannel, setCreateChannel] = useState(false);
-  const [channelPrivate, setChannelPrivate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -66,8 +66,9 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
         workspace_id: currentWorkspace.id,
         name: trimmed,
         columns: validCols,
+        is_private: boardPrivate ? 1 : 0,
       };
-      if (createChannel) body.channel = { is_private: channelPrivate };
+      if (createChannel) body.channel = { is_private: boardPrivate };
 
       const { data } = await client.post('/api/boards', body);
 
@@ -227,6 +228,30 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
             </div>
           </div>
 
+          {/* Board visibility */}
+          <div className="border border-gray-100 rounded-xl p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <span className="text-sm font-medium text-gray-700">Private board</span>
+                <span className="text-xs text-gray-400">Only invited members can access</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBoardPrivate(v => !v)}
+                className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${boardPrivate ? 'bg-primary-500' : 'bg-gray-200'}`}
+                aria-pressed={boardPrivate}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${boardPrivate ? 'translate-x-4' : 'translate-x-0'}`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* Board channel */}
           <div className="border border-gray-100 rounded-xl p-3">
             <div className="flex items-center justify-between">
@@ -249,28 +274,9 @@ export default function CreateBoardModal({ onClose }: CreateBoardModalProps) {
               <div className="mt-3 space-y-2">
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-500 w-16 flex-shrink-0">Visibility</span>
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="channelPrivacy"
-                        checked={!channelPrivate}
-                        onChange={() => setChannelPrivate(false)}
-                        className="accent-primary-500"
-                      />
-                      <span className="text-xs text-gray-700">Public</span>
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="channelPrivacy"
-                        checked={channelPrivate}
-                        onChange={() => setChannelPrivate(true)}
-                        className="accent-primary-500"
-                      />
-                      <span className="text-xs text-gray-700">Private</span>
-                    </label>
-                  </div>
+                  <span className="text-xs text-gray-500 italic">
+                    {boardPrivate ? 'Private — matches board' : 'Public — matches board'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-500 w-16 flex-shrink-0">Name</span>

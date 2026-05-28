@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useContext, lazy, Suspense, useMemo, useCallback, memo } from 'react';
-import { Search, RefreshCw, Plus, Pencil, Hash } from 'lucide-react';
+import { Search, RefreshCw, Plus, Pencil, Hash, Lock, Users } from 'lucide-react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -339,9 +339,10 @@ export default function BoardView() {
   const role    = useWorkspaceStore(s => s.role);
   const members = useWorkspaceStore(s => s.members);
   const teams   = useWorkspaceStore(s => s.teams);
-  const activeSidebar = useUIStore(s => s.activeSidebar);
-  const openSidebar   = useUIStore(s => s.openSidebar);
-  const closeSidebar  = useUIStore(s => s.closeSidebar);
+  const activeSidebar    = useUIStore(s => s.activeSidebar);
+  const openSidebar      = useUIStore(s => s.openSidebar);
+  const closeSidebar     = useUIStore(s => s.closeSidebar);
+  const openBoardMembers = useUIStore(s => s.openBoardMembers);
   const showUpdatesPanel = activeSidebar?.type === 'board-updates' && activeSidebar.boardId === boardId;
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
@@ -610,19 +611,34 @@ export default function BoardView() {
               }}
             />
           ) : (
-            <button onClick={handleNameEdit}
-              className="group flex items-center gap-2"
-              style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink-2)')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink)')}>
-              {board?.name || 'Board'}
-              <Pencil size={14} style={{ color: 'var(--faint)', flexShrink: 0, marginBottom: 1 }} />
-            </button>
+            <div className="flex items-center gap-2">
+              {board?.is_private ? <Lock size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} /> : null}
+              <button onClick={handleNameEdit}
+                className="group flex items-center gap-2"
+                style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em', color: 'var(--ink)' }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink-2)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink)')}>
+                {board?.name || 'Board'}
+                <Pencil size={14} style={{ color: 'var(--faint)', flexShrink: 0, marginBottom: 1 }} />
+              </button>
+            </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
             <p style={{ fontSize: 12, color: 'var(--muted)' }}>
               {columns.reduce((acc, c) => acc + (c.tasks?.length ?? 0), 0)} tasks
             </p>
+            {board?.is_private && boardId && (
+              <button
+                onClick={() => openBoardMembers(boardId)}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color: 'var(--muted)', background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: '2px 7px', cursor: 'pointer', fontFamily: 'inherit' }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                title="Manage board members"
+              >
+                <Users size={11} />
+                Members
+              </button>
+            )}
             {/* Team assignment */}
             {(() => {
               const assignedTeam = teams.find(t => t.id === board?.team_id);

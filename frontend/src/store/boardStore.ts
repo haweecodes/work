@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import client from '../api/client';
-import type { Board, Column, Task } from '../types';
+import type { Board, BoardMember, Column, Task } from '../types';
 
 interface BoardState {
   boards: Board[];
@@ -16,6 +16,9 @@ interface BoardState {
   updateBoardName: (id: string, name: string) => void;
   updateBoardTeam: (id: string, teamId: string | null) => void;
   updateBoardChannel: (id: string, channelId: string | null) => void;
+  fetchBoardMembers: (boardId: string) => Promise<BoardMember[]>;
+  addBoardMember: (boardId: string, userId: string) => Promise<void>;
+  removeBoardMember: (boardId: string, userId: string) => Promise<void>;
 }
 
 const useBoardStore = create<BoardState>((set) => ({
@@ -92,6 +95,27 @@ const useBoardStore = create<BoardState>((set) => ({
 
   updateBoardChannel: (id: string, channelId: string | null) =>
     set(s => ({ boards: s.boards.map(b => b.id === id ? { ...b, channel_id: channelId } : b) })),
+
+  fetchBoardMembers: async (boardId: string) => {
+    const { data } = await client.get<BoardMember[]>(`/api/boards/${boardId}/members`);
+    set(s => ({ boards: s.boards.map(b => b.id === boardId ? { ...b, members: data } : b) }));
+    return data;
+  },
+
+  addBoardMember: async (boardId: string, userId: string) => {
+    await client.post(`/api/boards/${boardId}/members`, { user_id: userId });
+  },
+
+  removeBoardMember: async (boardId: string, userId: string) => {
+    await client.delete(`/api/boards/${boardId}/members/${userId}`);
+    set(s => ({
+      boards: s.boards.map(b =>
+        b.id === boardId
+          ? { ...b, members: (b.members ?? []).filter(m => m.id !== userId) }
+          : b
+      ),
+    }));
+  },
 }));
 
 export default useBoardStore;

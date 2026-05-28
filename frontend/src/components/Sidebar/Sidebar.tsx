@@ -386,13 +386,15 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
                   <>
                     {myBoards.map(b => (
                       <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
-                        title={teams.find(t => t.id === b.team_id)?.name} />
+                        title={teams.find(t => t.id === b.team_id)?.name}
+                        icon={b.is_private ? Lock : undefined} />
                     ))}
                     {myBoards.length > 0 && otherBoards.length > 0 && (
                       <div style={{ borderTop: '1px solid var(--rule)', margin: '4px 0' }} />
                     )}
                     {otherBoards.map(b => (
-                      <NavItem key={b.id} to={`/board/${b.id}`} label={b.name} />
+                      <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
+                        icon={b.is_private ? Lock : undefined} />
                     ))}
                   </>
                 );

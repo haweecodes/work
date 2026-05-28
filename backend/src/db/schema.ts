@@ -80,8 +80,14 @@ export const boards = pgTable('boards', {
   created_by:    text('created_by').references(() => users.id),
   team_id:       text('team_id').references(() => teams.id),
   channel_id:    text('channel_id'),
+  is_private:    integer('is_private').default(0),
   created_at:    timestamp('created_at').defaultNow(),
 });
+
+export const board_members = pgTable('board_members', {
+  board_id: text('board_id').notNull().references(() => boards.id),
+  user_id:  text('user_id').notNull().references(() => users.id),
+}, (t) => [primaryKey({ columns: [t.board_id, t.user_id] })]);
 
 export const columns = pgTable('columns', {
   id:         text('id').primaryKey(),
@@ -233,3 +239,4 @@ export type TaskHistory          = typeof task_history.$inferSelect;
 export type NewTaskHistory       = typeof task_history.$inferInsert;
 export type TaskComment          = typeof task_comments.$inferSelect;
 export type NewTaskComment       = typeof task_comments.$inferInsert;
+export type BoardMember          = typeof board_members.$inferSelect;

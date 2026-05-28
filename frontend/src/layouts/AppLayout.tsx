@@ -11,6 +11,7 @@ import RightSidebarPanel from '../components/RightSidebarPanel';
 
 const InviteModal             = lazy(() => import('../components/InviteModal'));
 const CreateBoardModal        = lazy(() => import('../components/CreateBoardModal'));
+const BoardMembersModal       = lazy(() => import('../components/BoardMembersModal'));
 const SearchModal             = lazy(() => import('../components/SearchModal'));
 const WorkspaceSettingsModal  = lazy(() => import('../components/WorkspaceSettingsModal'));
 const UserSettingsModal       = lazy(() => import('../components/UserSettingsModal'));
@@ -33,6 +34,9 @@ export default function AppLayout() {
   const closeSettings      = useUIStore(s => s.closeSettings);
   const showUserSettings   = useUIStore(s => s.showUserSettings);
   const closeUserSettings  = useUIStore(s => s.closeUserSettings);
+  const showBoardMembers   = useUIStore(s => s.showBoardMembers);
+  const boardMembersId     = useUIStore(s => s.boardMembersId);
+  const closeBoardMembers  = useUIStore(s => s.closeBoardMembers);
 
   // When a task is selected, close any other open sidebar
   useEffect(() => {
@@ -173,6 +177,11 @@ export default function AppLayout() {
       {showUserSettings && (
         <Suspense fallback={null}>
           <UserSettingsModal onClose={closeUserSettings} />
+        </Suspense>
+      )}
+      {showBoardMembers && boardMembersId && (
+        <Suspense fallback={null}>
+          <BoardMembersModal boardId={boardMembersId} onClose={closeBoardMembers} />
         </Suspense>
       )}
     </div>

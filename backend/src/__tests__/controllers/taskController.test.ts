@@ -62,6 +62,7 @@ beforeEach(() => {
   jest.mocked(taskSvc.getTasksForUser).mockResolvedValue([]);
   jest.mocked(taskSvc.listComments).mockResolvedValue([]);
   jest.mocked(boardSvc.getBoardChannel).mockResolvedValue(undefined);
+  jest.mocked(boardSvc.isBoardAccessible).mockResolvedValue(true);
   jest.mocked(channelSvc.getChannelById).mockResolvedValue(null as any);
   jest.mocked(channelSvc.createSystemMessage).mockResolvedValue(null as any);
 });

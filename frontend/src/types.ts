@@ -55,6 +55,12 @@ export interface Team {
 }
 
 
+export interface BoardMember {
+  id: string;
+  name: string;
+  avatar_url?: string | null;
+}
+
 export interface Board {
   id: string;
   workspace_id: string;
@@ -64,6 +70,8 @@ export interface Board {
   created_by?: string;
   team_id?: string | null;
   channel_id?: string | null;
+  is_private?: number;
+  members?: BoardMember[];
 }
 
 export interface TaskUpdateResponse {
