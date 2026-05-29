@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useWorkspaceStore from '../store/workspaceStore';
@@ -55,7 +55,10 @@ export default function DMView() {
     setImportance('normal');
   };
 
-  const myTaskCount = columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0);
+  const myTaskCount = useMemo(
+    () => columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0),
+    [columns, user?.id],
+  );
 
   const handleReply = (msg: Message) => {
     openSidebar({ type: 'thread', message: msg, dmThreadId: threadId! });

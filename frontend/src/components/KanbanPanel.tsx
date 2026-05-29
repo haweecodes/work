@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useBoardStore from '../store/boardStore';
 import client from '../api/client';
@@ -46,27 +46,30 @@ export default function KanbanPanel({ columns, userId, sortBy, filterColId, boar
     }
   };
 
-  const visibleCols = columns
-    .filter(col => !filterColId || col.id === filterColId)
-    .map(col => ({
-      ...col,
-      tasks: col.tasks
-        .filter(t => t.assignees?.some(a => a.id === userId))
-        .sort((a, b) => {
-          if (sortBy === 'priority')
-            return (PRIORITY_ORDER[a.priority ?? ''] ?? 4) - (PRIORITY_ORDER[b.priority ?? ''] ?? 4);
-          if (sortBy === 'due_date') {
-            if (!a.due_date && !b.due_date) return 0;
-            if (!a.due_date) return 1;
-            if (!b.due_date) return -1;
-            return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-          }
-          return 0;
-        }),
-    }));
+  const visibleCols = useMemo(() =>
+    columns
+      .filter(col => !filterColId || col.id === filterColId)
+      .map(col => ({
+        ...col,
+        tasks: col.tasks
+          .filter(t => t.assignees?.some(a => a.id === userId))
+          .sort((a, b) => {
+            if (sortBy === 'priority')
+              return (PRIORITY_ORDER[a.priority ?? ''] ?? 4) - (PRIORITY_ORDER[b.priority ?? ''] ?? 4);
+            if (sortBy === 'due_date') {
+              if (!a.due_date && !b.due_date) return 0;
+              if (!a.due_date) return 1;
+              if (!b.due_date) return -1;
+              return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+            }
+            return 0;
+          }),
+      })),
+    [columns, filterColId, userId, sortBy],
+  );
 
-  const totalVisible = visibleCols.reduce((s, c) => s + c.tasks.length, 0);
-  const flatTasks = visibleCols.flatMap(c => c.tasks);
+  const totalVisible = useMemo(() => visibleCols.reduce((s, c) => s + c.tasks.length, 0), [visibleCols]);
+  const flatTasks = useMemo(() => visibleCols.flatMap(c => c.tasks), [visibleCols]);
 
   const handleContainerKeyDown = (e: React.KeyboardEvent) => {
     if (flatTasks.length === 0) return;

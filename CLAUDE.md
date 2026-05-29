@@ -49,14 +49,29 @@ frontend/src/
 │   │   └── Sidebar.tsx           # Dark sidebar — DM Sans, #7C3AED accent, rgba borders
 │   ├── MessageBubble.tsx         # Message with reactions, thread opener, share, edit/delete
 │   ├── MessageActionBar.tsx      # Hover action bar: react, reply, share, edit, delete
-│   ├── TaskDetailPanel.tsx       # Slide-in task drawer (right panel)
+│   ├── MessageComposer.tsx       # Rich message input with @mention, emoji, task link
+│   ├── MessageList.tsx           # Virtualised message list used by ChannelView + DMView
+│   ├── TaskDetailPanel.tsx       # Slide-in task drawer (right panel) with comments + history
 │   ├── ThreadPanel.tsx           # Inline thread reply panel (max 2-level nesting)
+│   ├── KanbanPanel.tsx           # Drag-and-drop Kanban columns extracted from BoardView
+│   ├── BoardUpdatesPanel.tsx     # Update request history panel inside BoardView
+│   ├── BoardMembersModal.tsx     # Manage members of a private board
+│   ├── TaskUpdatePanel.tsx       # Inline update-request response panel inside TaskDetailPanel
+│   ├── TaskTray.tsx              # Floating tray for quick task creation from messages
+│   ├── ChannelInfoPanel.tsx      # Right-panel info/members for a channel
+│   ├── UserProfilePanel.tsx      # Hoverable user profile card (avatar, status, mobile)
+│   ├── UserAvatar.tsx            # Reusable avatar with status indicator
+│   ├── UserSettingsModal.tsx     # Edit own profile (avatar, status, mobile, working hours)
+│   ├── WorkspaceSettingsModal.tsx # Workspace admin settings — members, teams, task statuses
+│   ├── RightSidebarPanel.tsx     # Collapsible right panel host (info, updates, search)
+│   ├── SearchModal.tsx           # Full-text search modal (messages + tasks)
 │   ├── CreateTaskModal.tsx
 │   ├── CreateBoardModal.tsx
 │   ├── InviteModal.tsx
 │   ├── ShareModal.tsx            # Share message to channel or DM with privacy checks
 │   ├── NotificationPanel.tsx     # Notification feed (mentions, task assignments, alerts)
 │   ├── PriorityAlertBanner.tsx   # Persistent banner for unresolved priority alerts
+│   ├── PriorityAlertOverlay.tsx  # Full overlay modal when multiple priority alerts stack
 │   ├── SendPriorityAlertModal.tsx # Compose + send priority alerts to workspace members
 │   ├── EmojiPicker.tsx
 │   ├── InlineTaskCard.tsx
@@ -70,6 +85,7 @@ frontend/src/
 │   ├── BoardView.tsx             # Kanban board (drag-and-drop columns & cards)
 │   ├── ChannelView.tsx           # Public/private channel chat
 │   ├── DMView.tsx                # 1-on-1 direct messages
+│   ├── MyTasksView.tsx           # All tasks assigned to the current user (filterable)
 │   ├── WorkspaceCreate.tsx
 │   ├── JoinWorkspace.tsx         # Invite-code join flow
 │   └── TaskRedirect.tsx          # /t/:taskKey deep-link resolver
@@ -98,6 +114,7 @@ frontend/src/
   /channel/:id       → ChannelView
   /dm/:threadId      → DMView
   /board/:boardId    → BoardView
+  /my-tasks          → MyTasksView
 ```
 
 All routes under `/` are behind a `PrivateRoute` guard (checks `authStore.token`).
@@ -146,6 +163,17 @@ All routes under `/` are behind a `PrivateRoute` guard (checks `authStore.token`
 
 ```
 backend/src/
+├── controllers/
+│   ├── boardController.ts        # Board + column handlers (private boards, board members)
+│   ├── channelController.ts      # Channel + message handlers
+│   ├── notificationController.ts # Notification handlers
+│   ├── taskController.ts         # Task handlers (CRUD, comments, history, my-tasks)
+│   └── workspaceController.ts    # Workspace + member handlers
+├── services/
+│   ├── boardService.ts           # Board business logic (private access, membership)
+│   ├── channelService.ts         # Channel business logic
+│   ├── taskService.ts            # Task business logic (assignment diff, history recording)
+│   └── workspaceService.ts       # Workspace business logic
 ├── middleware/
 │   ├── auth.ts         # JWT authMiddleware — verifies Bearer token, sets req.user
 │   └── workspace.ts    # Access-control guards (see Security Convention below)
@@ -153,11 +181,14 @@ backend/src/
 │   ├── auth.ts         # POST /api/auth/register, /login
 │   ├── workspaces.ts   # CRUD workspaces + members + invite codes
 │   ├── channels.ts     # CRUD channels, messages, reactions, threads, share, edit, delete
-│   ├── boards.ts       # CRUD boards + columns
-│   ├── tasks.ts        # CRUD tasks + assignees + task links + resolve by key
+│   ├── boards.ts       # CRUD boards + columns + private board membership
+│   ├── tasks.ts        # CRUD tasks + assignees + comments + history + resolve by key
+│   ├── teams.ts        # CRUD teams + team members (admin/owner only)
 │   ├── dms.ts          # DM threads + messages + threads
 │   ├── notifications.ts # Notifications + priority alerts
 │   └── search.ts       # Full-text search across messages and tasks
+├── db/
+│   └── schema.ts       # Drizzle schema — source of truth for all table definitions
 ├── db.ts               # Neon client wrapper: run(), all<T>(), get<T>() + schema migrations
 ├── socket.ts           # Socket.IO init + room join/leave event handlers
 ├── index.ts            # Express app assembly + server start
@@ -179,6 +210,7 @@ const protect = [authMiddleware, requireWorkspace()];
 app.use('/api/channels',      ...protect, channelRoutes);
 app.use('/api/boards',        ...protect, boardRoutes);
 app.use('/api/tasks',         ...protect, taskRoutes);
+app.use('/api/teams',         ...protect, teamRoutes);
 app.use('/api/dms',           ...protect, dmRoutes);
 app.use('/api/notifications', ...protect, notificationRoutes);
 app.use('/api/search',        ...protect, searchRoutes);
@@ -229,31 +261,45 @@ if (!isMember) return res.status(403).json({ error: 'You are not a member of thi
 
 ---
 
+## API Conventions
+- Use RESTful paths with query params (e.g., `/api/tasks?assignee=me`) rather than custom subpaths like `/api/tasks/mine`.
+- Validate session/workspace ownership server-side, not just by clearing localStorage on the client.
+
 ### Database (Neon PostgreSQL)
 
 Key tables and relationships:
 
 ```
-users                    id, name, email, password_hash, avatar_url
-workspaces               id, name, slug, owner_id → users
+users                    id, name, email, password_hash, avatar_url,
+                         mobile_number?, working_hours?, status_emoji?, status_text?
+workspaces               id, name, slug, owner_id → users, invite_code?
 workspace_members        workspace_id, user_id, role ('admin'|'member')
-channels                 id, workspace_id, name, is_private, is_archived, created_by → users
+workspace_settings       workspace_id (PK), task_update_statuses (JSON array)
+channels                 id, workspace_id, name, description?, is_private, is_archived,
+                         created_by → users, board_id?
 channel_members          channel_id, user_id
 dm_threads               id, workspace_id
 dm_participants          thread_id, user_id
-boards                   id, workspace_id, name, project_key, task_sequence
+teams                    id, workspace_id, name, created_by → users
+team_members             team_id, user_id
+boards                   id, workspace_id, name, project_key, task_sequence,
+                         created_by, team_id?, channel_id?, is_private
+board_members            board_id, user_id
 columns                  id, board_id, title, position
 tasks                    id, board_id, column_id, title, description, priority,
                          due_date, created_by, position, task_number, task_key,
                          linked_message_id, parent_task_id
 task_assignees           task_id, user_id
+task_comments            id, task_id, author_id, content, created_at, edited_at?
+task_history             id, task_id, actor_id, actor_name, actor_avatar?,
+                         action, field?, old_value?, new_value?
 messages                 id, channel_id?, dm_thread_id?, sender_id, content,
                          linked_task_id?, parent_message_id?, shared_message_id?,
                          is_system, edited_at?, importance, mention_priorities?
 message_reactions        message_id, user_id, emoji
 notifications            id, user_id, type, reference_id, reference_type, message,
                          is_read, is_resolved, sender_name, sender_avatar,
-                         workspace_id, priority
+                         workspace_id, priority, extra_id?
 ```
 
 **Schema notes:**
@@ -267,10 +313,18 @@ notifications            id, user_id, type, reference_id, reference_type, messag
 - `notifications.workspace_id` — scopes priority alerts so dedup/cap logic is per-workspace.
 - `notifications.extra_id` — used by `task_update_request` notifications to carry the `request_id` alongside the `reference_id` (task ID).
 - `boards.created_by` — set at creation time; used by `canRequestUpdates()` in `taskUpdates.ts` to allow the board creator (or workspace admins) to request status updates.
+- `boards.is_private` — private boards are only visible to `board_members` rows; non-members get 403. Creator is auto-added as first member.
+- `boards.team_id` — optional; when set, board is associated with a team (for filtering in `WorkspaceSettingsModal`).
+- `boards.channel_id` — optional linked channel; surfaced in board header for quick navigation.
 - `task_update_requests` — one row per update request: `id, board_id, scope, task_id?, column_id?, requested_by, workspace_id`.
 - `task_update_responses` — one row per assignee response: `id, request_id, task_id, user_id, status, reason?`.
+- `task_comments` — comments on a task: any workspace member can comment; author can edit or delete.
+- `task_history` — immutable audit log written by `taskService` on every field change (`action`, `field`, `old_value`, `new_value`).
+- `workspace_settings.task_update_statuses` — JSON array of custom status labels for task update responses; replaces the hardcoded `on_track | delayed | finished | cancelled` defaults when set.
+- `users.status_emoji` / `users.status_text` — user-set status displayed in `UserProfilePanel` and `UserAvatar`.
+- `channels.board_id` — optional link to a board; used to navigate from channel header to the associated board.
 - `db.ts` exposes `run()`, `all<T>()`, `get<T>()`, `returning<T>()`, `runTransaction()` helpers that convert `?` placeholders to `$1, $2, …` for Postgres.
-- Schema migrations run on startup via `initDb()` in `db.ts` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (idempotent).
+- Schema source of truth lives in `backend/src/db/schema.ts` (Drizzle). Migrations run on startup via `initDb()` in `db.ts` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (idempotent).
 
 ---
 
@@ -306,25 +360,43 @@ All routes except `/api/auth/*` require a valid JWT and workspace membership (se
 | `GET /api/channels/messages/:messageId/reactions` | Get reactions for a message |
 | `POST /api/channels/messages/:messageId/reactions` | Toggle emoji reaction (membership-checked) |
 
-**Boards** (all require workspace guard)
+**Boards** (all require workspace guard; private boards also check `board_members`)
 | Method + Path | Description |
 |---|---|
-| `GET /api/boards/:workspaceId` | List boards in workspace |
-| `POST /api/boards` | Create board (auto-generates `project_key`, creates default columns) |
+| `GET /api/boards/:workspaceId` | List boards visible to the user (public + boards where user is a member) |
+| `POST /api/boards` | Create board (auto-generates `project_key`, creates default columns; if `is_private`, creator added to `board_members`) |
 | `PATCH /api/boards/:id` | Rename board |
 | `GET /api/boards/:boardId/columns` | List columns with enriched tasks + assignees |
 | `POST /api/boards/:boardId/columns` | Add a column |
+| `GET /api/boards/:boardId/members` | List members of a private board |
+| `POST /api/boards/:boardId/members` | Add member to private board (admin/board-creator only) |
+| `DELETE /api/boards/:boardId/members/:userId` | Remove member from private board (admin/board-creator only) |
+
+**Teams** (all require workspace guard; create/delete/member management is admin/owner only)
+| Method + Path | Description |
+|---|---|
+| `GET /api/teams` | List teams + members for the workspace |
+| `POST /api/teams` | Create team |
+| `DELETE /api/teams/:teamId` | Delete team (cascades members) |
+| `POST /api/teams/:teamId/members` | Add workspace member to team |
+| `DELETE /api/teams/:teamId/members/:userId` | Remove member from team |
 
 **Tasks** (all require workspace guard; queries always scope by `req.workspaceId` via JOIN to boards)
 | Method + Path | Description |
 |---|---|
+| `GET /api/tasks?scope=mine` | List all tasks assigned to the current user across all boards |
 | `GET /api/tasks/:boardId` | List all tasks for a board |
 | `POST /api/tasks` | Create task (auto-increments `task_sequence`, generates `task_key`) |
 | `GET /api/tasks/task/:id` | Get single task with assignees |
-| `PATCH /api/tasks/:id` | Update task fields + assignees (diff-based, sends assignment notifications) |
+| `PATCH /api/tasks/:id` | Update task fields + assignees (diff-based, sends assignment notifications, records history) |
 | `PATCH /api/tasks/:id/move` | Move task to column + position |
 | `DELETE /api/tasks/:id` | Delete task (clears assignees + message link) |
 | `GET /api/tasks/resolve/:taskKey` | Resolve task key → `{ task_id, board_id, workspace_id }` |
+| `GET /api/tasks/:id/comments` | List comments on a task |
+| `POST /api/tasks/:id/comments` | Add comment to a task |
+| `PATCH /api/tasks/:id/comments/:commentId` | Edit own comment |
+| `DELETE /api/tasks/:id/comments/:commentId` | Delete own comment |
+| `GET /api/tasks/:id/history` | Audit log of field changes for a task |
 
 **Task Update Requests** (all require workspace guard; board creator and workspace admins only for POST)
 | Method + Path | Description |
@@ -428,6 +500,10 @@ Server→client events:
 - Do not write tests just to hit coverage numbers; test behavior, not implementation details.
 - When fixing a bug, write the regression test first so the bug is provably reproducible before the fix is applied.
 
+## Testing
+- Always run the full test suite after modifying controllers, middleware, or shared utilities to catch broken mocks (e.g., isBoardAccessible).
+- When adding new dependencies, verify version compatibility with Vite/Jest/Vitest before installing.
+
 ---
 
 ## Key Conventions
@@ -440,6 +516,13 @@ Server→client events:
 - **Thread nesting**: Max 2 levels deep enforced on both channel messages and DMs. A reply to a reply is allowed; a reply to a reply-of-a-reply is rejected (400).
 - **Message ownership**: Only the message sender can edit or delete their own messages. System messages (`is_system=1`) cannot be edited or deleted.
 - **Task keys**: Auto-incremented via `UPDATE boards SET task_sequence = task_sequence + 1` then formatted as `{project_key}-{n}`.
+- **Private boards**: `boards.is_private=1` boards are access-controlled via `board_members`. Non-members receive 403. The creator is auto-added on creation. `BoardMembersModal` lets the creator/admins add or remove members.
+- **Teams**: Groups of workspace members managed by admins/owners in `WorkspaceSettingsModal`. Boards can be linked to a team via `boards.team_id`. Teams are purely organisational and do not gate access by themselves.
+- **My Tasks view**: `GET /api/tasks?scope=mine` returns all tasks across all accessible boards in the workspace where the current user is an assignee, enriched with `board_name` and `column_title`. The `MyTasksView` page renders them with due-date filters (overdue / today / upcoming / no date).
+- **Task comments**: Any workspace member can comment on any task they can see. Author can edit or delete their own comment. Stored in `task_comments`.
+- **Task history**: Every field change (`title`, `description`, `priority`, `due_date`, `column`, assignees added/removed) is written as an immutable `task_history` row by `taskService`. Surfaced in `TaskDetailPanel` as a chronological audit log.
+- **User profiles**: Users can set `status_emoji`, `status_text`, `mobile_number`, and `working_hours` via `UserSettingsModal`. These are displayed in `UserProfilePanel` (hoverable card) and `UserAvatar` (status dot).
+- **Backend architecture**: Business logic lives in `src/services/`; HTTP handlers live in `src/controllers/`; Express routers in `src/routes/` wire them together. New features should follow this controller → service → db layering.
 - **Subtask completion**: "Done" is determined by the last column by position (`ORDER BY position DESC LIMIT 1`), not a hardcoded title. This is used in both `TaskCard` (board view) and `TaskDetailPanel` to compute `completedCount/totalCount`.
 - **Task update requests**: Board creator or workspace admins (`role='admin'`) can request status updates via `POST /api/task-updates/request`. Responses (`on_track | delayed | finished | cancelled`) are stored in `task_update_responses` and surfaced inline in `TaskDetailPanel` for assignees. `BoardUpdatesPanel` shows full history.
 - **Priority alerts**: One pending alert per sender-recipient pair per workspace. Recipients see a `PriorityAlertBanner` at the top of the app until they acknowledge. Resolving clears all pending alerts from that sender in one operation.
@@ -448,6 +531,8 @@ Server→client events:
 - **Mobile**: Sidebar slides in as a fixed overlay on `<md` breakpoints; `TaskDetailPanel` goes full-screen overlay on mobile.
 
 ---
+
+
 
 ## Environment Variables
 

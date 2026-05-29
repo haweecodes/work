@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AtSign, ClipboardCheck, Clock, RefreshCw, MessageSquare, AlertTriangle, ChevronDown, ChevronRight, X, type LucideIcon } from 'lucide-react';
 import useNotificationStore from '../store/notificationStore';
@@ -108,7 +108,7 @@ function buildDisplayItems(notifications: Notification[], filter: 'inbox' | 'all
 
 // ─── Single card ─────────────────────────────────────────────────────────────
 
-function NotifCard({ n, onNavigate, onDismiss }: {
+const NotifCard = memo(function NotifCard({ n, onNavigate, onDismiss }: {
   n: Notification;
   onNavigate: (n: Notification) => void;
   onDismiss: (id: string) => void;
@@ -165,14 +165,14 @@ function NotifCard({ n, onNavigate, onDismiss }: {
       </button>
     </div>
   );
-}
+});
 
 // ─── Grouped response card ────────────────────────────────────────────────────
 
-function GroupCard({ group, expanded, onToggle, onNavigateItem, onDismissAll }: {
+const GroupCard = memo(function GroupCard({ group, expanded, onToggle, onNavigateItem, onDismissAll }: {
   group: GroupItem;
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (refId: string) => void;
   onNavigateItem: (n: Notification) => void;
   onDismissAll: (ids: string[]) => void;
 }) {
@@ -188,7 +188,7 @@ function GroupCard({ group, expanded, onToggle, onNavigateItem, onDismissAll }: 
       {/* Group header row */}
       <div className="relative flex items-start gap-0" style={{ background: hovered || hasUnread ? 'var(--paper-2)' : 'transparent' }}>
         <span style={{ width: 3, flexShrink: 0, background: hasUnread ? 'var(--ink-2)' : 'transparent', alignSelf: 'stretch' }} />
-        <button className="flex-1 min-w-0 px-4 py-3 text-left" onClick={onToggle}>
+        <button className="flex-1 min-w-0 px-4 py-3 text-left" onClick={() => onToggle(group.refId)}>
           <div className="flex items-center gap-1.5 mb-1">
             <MessageSquare size={11} style={{ color: 'var(--faint)', flexShrink: 0 }} />
             <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)' }}>
@@ -243,7 +243,7 @@ function GroupCard({ group, expanded, onToggle, onNavigateItem, onDismissAll }: 
       )}
     </div>
   );
-}
+});
 
 // ─── Panel ───────────────────────────────────────────────────────────────────
 
@@ -268,7 +268,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  async function navigate_to(n: Notification) {
+  const navigate_to = useCallback(async (n: Notification) => {
     markRead(n.id);
     onClose();
     if ((n.type === 'task_assigned' || n.type === 'task_due') && n.reference_id) {
@@ -296,26 +296,26 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
         navigate(`/board/${data.board_id}?updates=1`);
       } catch {}
     }
-  }
+  }, [markRead, onClose, navigate, openSidebar]);
 
-  function dismiss(id: string) {
+  const dismiss = useCallback((id: string) => {
     markRead(id);
-  }
+  }, [markRead]);
 
-  function dismissAll(ids: string[]) {
+  const dismissAll = useCallback((ids: string[]) => {
     ids.forEach(id => markRead(id));
-  }
+  }, [markRead]);
 
-  function toggleGroup(refId: string) {
+  const toggleGroup = useCallback((refId: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
       if (next.has(refId)) next.delete(refId); else next.add(refId);
       return next;
     });
-  }
+  }, []);
 
-  const displayItems = buildDisplayItems(notifications, filter);
-  const inboxCount = notifications.filter(n => !n.is_read).length;
+  const displayItems = useMemo(() => buildDisplayItems(notifications, filter), [notifications, filter]);
+  const inboxCount = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
 
   return (
     <div ref={panelRef} className="flex flex-col h-full">
@@ -392,7 +392,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                 key={item.refId}
                 group={item}
                 expanded={expandedGroups.has(item.refId)}
-                onToggle={() => toggleGroup(item.refId)}
+                onToggle={toggleGroup}
                 onNavigateItem={navigate_to}
                 onDismissAll={dismissAll}
               />

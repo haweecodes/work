@@ -7,7 +7,7 @@ let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
 
 export async function list(req: Request, res: Response) {
-  const boards = await boardService.getBoardsByWorkspace(String(req.params.workspaceId), req.user.id);
+  const boards = await boardService.getBoardsByWorkspace(req.workspaceId!, req.user.id);
   res.json(boards);
 }
 

@@ -8,7 +8,7 @@ let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
 
 export async function listThreads(req: Request, res: Response) {
-  const threads = await dmService.getDmThreads(String(req.params.workspaceId), req.user.id);
+  const threads = await dmService.getDmThreads(req.workspaceId!, req.user.id);
   res.json(threads);
 }
 

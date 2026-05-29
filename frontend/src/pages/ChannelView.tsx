@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import client from '../api/client';
 import useAuthStore from '../store/authStore';
@@ -83,7 +83,10 @@ export default function ChannelView() {
 
   // ── Board columns ─────────────────────────────────────────────────────────
   const activeBoard = boards[0];
-  const myTaskCount = columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0);
+  const myTaskCount = useMemo(
+    () => columns.reduce((sum, c) => sum + c.tasks.filter(t => t.assignees?.some(a => a.id === user?.id)).length, 0),
+    [columns, user?.id],
+  );
   const canArchive  = user && !channel?.is_archived && (channel?.created_by === user.id || useWorkspaceStore.getState().isAdmin(user.id));
 
   useEffect(() => {

@@ -150,6 +150,18 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     return map;
   }, [dmThreads, user?.id]);
 
+  const { myBoards, otherBoards } = useMemo(() => {
+    const myTeamBoardIds = new Set(
+      teams
+        .filter(t => t.members.some(m => m.id === user?.id))
+        .flatMap(t => boards.filter(b => b.team_id === t.id).map(b => b.id)),
+    );
+    return {
+      myBoards:    boards.filter(b => myTeamBoardIds.has(b.id)),
+      otherBoards: boards.filter(b => !myTeamBoardIds.has(b.id)),
+    };
+  }, [boards, teams, user?.id]);
+
   const handleAddChannel = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newChannelName.trim() || !currentWorkspace) return;
@@ -373,32 +385,20 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           <SectionLabel icon={Kanban} onAdd={() => openCreateBoard()} collapsed={boardsCollapsed} onToggle={() => setBoardsCollapsed(c => !c)}>Boards</SectionLabel>
           {!boardsCollapsed && (
             <div className="space-y-0">
-              {(() => {
-                const myTeamBoardIds = new Set(
-                  teams
-                    .filter(t => t.members.some(m => m.id === user?.id))
-                    .map(t => boards.filter(b => b.team_id === t.id).map(b => b.id))
-                    .flat()
-                );
-                const myBoards    = boards.filter(b => myTeamBoardIds.has(b.id));
-                const otherBoards = boards.filter(b => !myTeamBoardIds.has(b.id));
-                return (
-                  <>
-                    {myBoards.map(b => (
-                      <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
-                        title={teams.find(t => t.id === b.team_id)?.name}
-                        icon={b.is_private ? Lock : undefined} />
-                    ))}
-                    {myBoards.length > 0 && otherBoards.length > 0 && (
-                      <div style={{ borderTop: '1px solid var(--rule)', margin: '4px 0' }} />
-                    )}
-                    {otherBoards.map(b => (
-                      <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
-                        icon={b.is_private ? Lock : undefined} />
-                    ))}
-                  </>
-                );
-              })()}
+              <>
+                {myBoards.map(b => (
+                  <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
+                    title={teams.find(t => t.id === b.team_id)?.name}
+                    icon={b.is_private ? Lock : undefined} />
+                ))}
+                {myBoards.length > 0 && otherBoards.length > 0 && (
+                  <div style={{ borderTop: '1px solid var(--rule)', margin: '4px 0' }} />
+                )}
+                {otherBoards.map(b => (
+                  <NavItem key={b.id} to={`/board/${b.id}`} label={b.name}
+                    icon={b.is_private ? Lock : undefined} />
+                ))}
+              </>
             </div>
           )}
         </section>

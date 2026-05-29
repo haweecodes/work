@@ -8,7 +8,7 @@ let io: Server | undefined;
 export const setIo = (s: Server) => { io = s; };
 
 export async function list(req: Request, res: Response) {
-  const channels = await channelSvc.getChannelsByWorkspace(String(req.params.workspaceId), req.user.id);
+  const channels = await channelSvc.getChannelsByWorkspace(req.workspaceId!, req.user.id);
   res.json(channels);
 }
 
